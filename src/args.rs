@@ -3,7 +3,7 @@ use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, Config, HiddenAct, DTYPE};
 use clap::Parser;
 use hf_hub::{api::sync::Api, Repo, RepoType};
-use tokenizers::Tokenizer;
+use tokenizers::{Tokenizer, TruncationParams};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -71,8 +71,11 @@ impl Args {
         };
         let config = std::fs::read_to_string(config_filename)?;
         let mut config: Config = serde_json::from_str(&config)?;
-        let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
-
+        let mut tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
+        let _ = tokenizer.with_truncation(Some(TruncationParams {
+            max_length: 512,
+            ..Default::default()
+        }));
         let vb = if self.use_pth {
             VarBuilder::from_pth(&weights_filename, DTYPE, &device)?
         } else {

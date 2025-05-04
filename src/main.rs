@@ -1,14 +1,75 @@
 mod args;
+mod dataset;
 mod embs;
 mod inverted_index;
 mod util;
 mod vector_index;
 use anyhow::Result;
+use candle_core::Tensor;
+use dataset::load_scifact;
+use embs::calc_embs;
 use faiss::read_index;
+use faiss::Index;
 use inverted_index::InvertedIndex;
+use qdrant_client::qdrant::vector_output::Vector;
+use qdrant_client::qdrant::vectors_output::VectorsOptions;
+use qdrant_client::qdrant::Condition;
+use qdrant_client::qdrant::FieldCondition;
+use qdrant_client::qdrant::Filter;
+use qdrant_client::qdrant::Match;
+use qdrant_client::qdrant::ScrollPointsBuilder;
+use qdrant_client::Qdrant;
+use util::reconstruct_batch;
 
-/// ---------- demo ---------------------------------------------
-fn main() -> Result<()> {
+fn process_batch(
+    ids: &[&String],
+    texts: &[String],
+    index: &mut faiss::index::IndexImpl,
+) -> Result<()> {
+    let embs = calc_embs(texts.iter().map(String::as_str).collect())?;
+    let flat_embs = embs.flatten_all()?.to_vec1::<f32>()?;
+    let faiss::index::SearchResult { distances, labels } = index.search(&flat_embs, 8)?;
+    debug_assert_eq!(labels.len() / 8, embs.dim(0)?);
+    let embs = reconstruct_batch(index, &labels)?;
+    Ok(())
+}
+
+fn do_smtg() -> Result<()> {
+    let mut index = read_index("/home/slava/Developer/SparKBERT/hnsw.index")?;
+    println!("{}", index.ntotal());
+
+    let batch = 128 / 4;
+    let mut ids = Vec::with_capacity(batch);
+    let mut texts = Vec::with_capacity(batch);
+    let (corpus, queries, qrels) = load_scifact("test")?;
+    for (id, doc) in &corpus {
+        let text = if let Some(title) = &doc.title {
+            // одна аллокация, чтобы не делать format! для None
+            let mut s = String::with_capacity(title.len() + 1 + doc.text.len());
+            s.push_str(title);
+            s.push(' ');
+            s.push_str(&doc.text);
+            s
+        } else {
+            doc.text.clone()
+        };
+
+        ids.push(id); // храним только ссылки на id
+        texts.push(text);
+        if texts.len() == batch {
+            process_batch(&ids, &texts, &mut index)?;
+            ids.clear();
+            texts.clear();
+        }
+    }
+    if !texts.is_empty() {
+        process_batch(&ids, &texts, &mut index)?;
+    }
+    println!("{}, {}, {}", corpus.len(), queries.len(), qrels.len());
+    Ok(())
+}
+
+fn build_inverted_index() -> Result<()> {
     let mut idx = InvertedIndex::open()?;
 
     // ---------- indexing ----------
@@ -24,8 +85,37 @@ fn main() -> Result<()> {
     // ---------- search ------------
     let query_pairs = vec!["42#7".to_string(), "11#1".to_string()];
     idx.search(&query_pairs, 10)?;
-
-    read_index("../hnsw.index");
-
+    Ok(())
+}
+/// ---------- demo ---------------------------------------------
+#[tokio::main]
+async fn main() -> Result<()> {
+    let client = Qdrant::from_url("http://vectordb.home:6334").build()?;
+    let scroll_response = client
+        .scroll(
+            ScrollPointsBuilder::new("scifact_embs_all_MiniLM_L6_v2")
+                .filter(Filter::must([Condition::matches(
+                    "doc_id",
+                    "4983".to_string(),
+                )]))
+                .limit(1000)
+                .with_payload(true)
+                .with_vectors(true),
+        )
+        .await?;
+    debug_assert!(scroll_response.result.len() < 999);
+    let mut flat_embs: Vec<f32> = Vec::new();
+    for point in scroll_response.result {
+        let vectors_options = point.vectors.unwrap().vectors_options.unwrap();
+        match vectors_options {
+            VectorsOptions::Vector(vector_output) => {
+                flat_embs.extend(&vector_output.data);
+            }
+            VectorsOptions::Vectors(named_vectors_output) => {
+                panic!("Unexpected vectors for token")
+            }
+        }
+    }
+    dbg!(flat_embs.len());
     Ok(())
 }
