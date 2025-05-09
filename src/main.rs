@@ -11,14 +11,14 @@ use embs::calc_embs;
 use faiss::read_index;
 use faiss::Index;
 use inverted_index::InvertedIndex;
-use qdrant_client::qdrant::vector_output::Vector;
 use qdrant_client::qdrant::vectors_output::VectorsOptions;
 use qdrant_client::qdrant::Condition;
-use qdrant_client::qdrant::FieldCondition;
 use qdrant_client::qdrant::Filter;
 use qdrant_client::qdrant::Match;
 use qdrant_client::qdrant::ScrollPointsBuilder;
 use qdrant_client::Qdrant;
+use redis::Commands;
+use std::collections::HashMap;
 use util::reconstruct_batch;
 
 fn process_batch(
@@ -87,16 +87,14 @@ fn build_inverted_index() -> Result<()> {
     idx.search(&query_pairs, 10)?;
     Ok(())
 }
-/// ---------- demo ---------------------------------------------
-#[tokio::main]
-async fn main() -> Result<()> {
-    let client = Qdrant::from_url("http://vectordb.home:6334").build()?;
+
+async fn load_embs_for_doc_id(client: &Qdrant, doc_id: &str) -> Result<Vec<f32>> {
     let scroll_response = client
         .scroll(
             ScrollPointsBuilder::new("scifact_embs_all_MiniLM_L6_v2")
                 .filter(Filter::must([Condition::matches(
                     "doc_id",
-                    "4983".to_string(),
+                    doc_id.to_string(),
                 )]))
                 .limit(1000)
                 .with_payload(true)
@@ -116,6 +114,35 @@ async fn main() -> Result<()> {
             }
         }
     }
-    dbg!(flat_embs.len());
+    Ok(flat_embs)
+}
+
+/// ---------- demo ---------------------------------------------
+#[tokio::main]
+async fn main() -> Result<()> {
+    let qdrant = Qdrant::from_url("http://vectordb.home:6334").build()?;
+    let mut redis = redis::Client::open("redis://cache.home:16379")?.get_connection()?;
+    let faiss_idx_to_token: HashMap<String, String> = redis.hgetall("faiss_idx_to_token")?;
+    let mut index = read_index("/home/slava/Developer/SparKBERT/hnsw.index")?;
+    println!("Vector dictionary size: {}", index.ntotal());
+    let (corpus, queries, qrels) = load_scifact("test")?;
+    let number = 1;
+    for (doc_id, doc) in &corpus {
+        let flat_embs = load_embs_for_doc_id(&qdrant, doc_id).await?;
+        dbg!(flat_embs.len());
+        let faiss::index::SearchResult { distances, labels } = index.search(&flat_embs, 8)?;
+        let embs = reconstruct_batch(&index, &labels)?;
+        let tokens: Vec<&String> = labels
+            .iter()
+            .map(|idx| {
+                let idx = idx.get().unwrap().to_string();
+                faiss_idx_to_token.get(&idx).unwrap()
+            })
+            .collect();
+        dbg!(tokens);
+        if number == 1 {
+            break;
+        }
+    }
     Ok(())
 }
