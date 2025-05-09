@@ -5,6 +5,7 @@ mod inverted_index;
 mod util;
 mod vector_index;
 use anyhow::Result;
+use candle_core::Device;
 use candle_core::Tensor;
 use dataset::load_scifact;
 use embs::calc_embs;
@@ -124,14 +125,19 @@ async fn main() -> Result<()> {
     let mut redis = redis::Client::open("redis://cache.home:16379")?.get_connection()?;
     let faiss_idx_to_token: HashMap<String, String> = redis.hgetall("faiss_idx_to_token")?;
     let mut index = read_index("/home/slava/Developer/SparKBERT/hnsw.index")?;
+    let d = index.d() as usize;
+    let device = Device::new_cuda(0)?;
     println!("Vector dictionary size: {}", index.ntotal());
     let (corpus, queries, qrels) = load_scifact("test")?;
     let number = 1;
     for (doc_id, doc) in &corpus {
-        let flat_embs = load_embs_for_doc_id(&qdrant, doc_id).await?;
-        dbg!(flat_embs.len());
-        let faiss::index::SearchResult { distances, labels } = index.search(&flat_embs, 8)?;
-        let embs = reconstruct_batch(&index, &labels)?;
+        let doc_embs = load_embs_for_doc_id(&qdrant, doc_id).await?;
+        dbg!(doc_embs.len());
+        let faiss::index::SearchResult {
+            distances: _,
+            labels,
+        } = index.search(&doc_embs, 8)?;
+        let token_embs = reconstruct_batch(&index, &labels)?;
         let tokens: Vec<&String> = labels
             .iter()
             .map(|idx| {
@@ -139,7 +145,12 @@ async fn main() -> Result<()> {
                 faiss_idx_to_token.get(&idx).unwrap()
             })
             .collect();
-        dbg!(tokens);
+        let doc_embs_count = doc_embs.len() / d;
+        let doc_embs_tensor = Tensor::from_vec(doc_embs, (doc_embs_count, d), &device)?;
+        let token_embs_count = token_embs.len() / d;
+        let token_embs_tensor = Tensor::from_vec(token_embs, (token_embs_count, d), &device)?;
+        let scores = doc_embs_tensor.matmul(&token_embs_tensor.t()?)?.max(0)?;
+        dbg!(scores.to_vec1::<f32>()?);
         if number == 1 {
             break;
         }
