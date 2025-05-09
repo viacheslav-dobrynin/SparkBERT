@@ -121,6 +121,7 @@ async fn load_embs_for_doc_id(client: &Qdrant, doc_id: &str) -> Result<Vec<f32>>
 /// ---------- demo ---------------------------------------------
 #[tokio::main]
 async fn main() -> Result<()> {
+    let mut inverted_index = InvertedIndex::open()?;
     let qdrant = Qdrant::from_url("http://vectordb.home:6334").build()?;
     let mut redis = redis::Client::open("redis://cache.home:16379")?.get_connection()?;
     let faiss_idx_to_token: HashMap<String, String> = redis.hgetall("faiss_idx_to_token")?;
@@ -129,7 +130,6 @@ async fn main() -> Result<()> {
     let device = Device::new_cuda(0)?;
     println!("Vector dictionary size: {}", index.ntotal());
     let (corpus, queries, qrels) = load_scifact("test")?;
-    let number = 1;
     for (doc_id, doc) in &corpus {
         let doc_embs = load_embs_for_doc_id(&qdrant, doc_id).await?;
         dbg!(doc_embs.len());
@@ -149,11 +149,15 @@ async fn main() -> Result<()> {
         let doc_embs_tensor = Tensor::from_vec(doc_embs, (doc_embs_count, d), &device)?;
         let token_embs_count = token_embs.len() / d;
         let token_embs_tensor = Tensor::from_vec(token_embs, (token_embs_count, d), &device)?;
-        let scores = doc_embs_tensor.matmul(&token_embs_tensor.t()?)?.max(0)?;
-        dbg!(scores.to_vec1::<f32>()?);
-        if number == 1 {
-            break;
+        let scores: Vec<f32> = doc_embs_tensor
+            .matmul(&token_embs_tensor.t()?)?
+            .max(0)?
+            .to_vec1()?;
+        debug_assert!(tokens.len() == scores.len());
+        for (token, score) in tokens.iter().zip(scores.iter()) {
+            inverted_index.add_pair(token, doc_id.parse::<u64>()?, *score as f64)?;
         }
     }
+    inverted_index.commit()?;
     Ok(())
 }
