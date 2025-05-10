@@ -89,7 +89,7 @@ fn build_inverted_index() -> Result<()> {
     Ok(())
 }
 
-async fn load_embs_for_doc_id(client: &Qdrant, doc_id: &str) -> Result<Vec<f32>> {
+async fn load_embs_for_doc_id(client: &Qdrant, d: usize, doc_id: &str) -> Result<Vec<f32>> {
     let scroll_response = client
         .scroll(
             ScrollPointsBuilder::new("scifact_embs_all_MiniLM_L6_v2")
@@ -98,12 +98,22 @@ async fn load_embs_for_doc_id(client: &Qdrant, doc_id: &str) -> Result<Vec<f32>>
                     doc_id.to_string(),
                 )]))
                 .limit(1000)
-                .with_payload(true)
+                .with_payload(false)
                 .with_vectors(true),
         )
         .await?;
-    debug_assert!(scroll_response.result.len() < 999);
-    let mut flat_embs: Vec<f32> = Vec::new();
+
+    // Pre-calculate capacity to avoid reallocations
+    let point_count = scroll_response.result.len();
+    if point_count >= 999 {
+        return Err(anyhow::anyhow!(
+            "Too many points returned for document {}",
+            doc_id
+        ));
+    }
+
+    let mut flat_embs: Vec<f32> = Vec::with_capacity(point_count * d);
+
     for point in scroll_response.result {
         let vectors_options = point.vectors.unwrap().vectors_options.unwrap();
         match vectors_options {
@@ -131,7 +141,7 @@ async fn main() -> Result<()> {
     println!("Vector dictionary size: {}", index.ntotal());
     let (corpus, queries, qrels) = load_scifact("test")?;
     for (doc_id, doc) in &corpus {
-        let doc_embs = load_embs_for_doc_id(&qdrant, doc_id).await?;
+        let doc_embs = load_embs_for_doc_id(&qdrant, d, doc_id).await?;
         dbg!(doc_embs.len());
         let faiss::index::SearchResult {
             distances: _,
