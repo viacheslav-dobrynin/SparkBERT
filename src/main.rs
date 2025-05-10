@@ -11,6 +11,8 @@ use dataset::load_scifact;
 use embs::calc_embs;
 use faiss::read_index;
 use faiss::Index;
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
 use inverted_index::InvertedIndex;
 use qdrant_client::qdrant::vectors_output::VectorsOptions;
 use qdrant_client::qdrant::Condition;
@@ -140,9 +142,9 @@ async fn main() -> Result<()> {
     let device = Device::new_cuda(0)?;
     println!("Vector dictionary size: {}", index.ntotal());
     let (corpus, queries, qrels) = load_scifact("test")?;
-    for (doc_id, doc) in &corpus {
+    let pb = ProgressBar::new(corpus.len() as u64);
+    for (doc_id, doc) in pb.wrap_iter(corpus.iter()) {
         let doc_embs = load_embs_for_doc_id(&qdrant, d, doc_id).await?;
-        dbg!(doc_embs.len());
         let faiss::index::SearchResult {
             distances: _,
             labels,
