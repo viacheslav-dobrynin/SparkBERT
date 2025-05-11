@@ -5,6 +5,7 @@ mod inverted_index;
 mod util;
 mod vector_index;
 use anyhow::Result;
+use candle_core::Device;
 use candle_core::Tensor;
 use dataset::load_scifact;
 use embs::calc_embs;
@@ -16,12 +17,10 @@ use inverted_index::InvertedIndex;
 use qdrant_client::qdrant::vectors_output::VectorsOptions;
 use qdrant_client::qdrant::Condition;
 use qdrant_client::qdrant::Filter;
-use qdrant_client::qdrant::Match;
 use qdrant_client::qdrant::ScrollPointsBuilder;
 use qdrant_client::Qdrant;
 use redis::Commands;
 use std::collections::HashMap;
-use std::fmt::Write;
 use std::time::Instant;
 use util::device;
 use util::reconstruct_batch;
@@ -113,6 +112,23 @@ async fn load_embs_for_doc_id(client: &Qdrant, d: usize, doc_id: &str) -> Result
     Ok(flat_embs)
 }
 
+fn calculate_max_sim(
+    doc_embs: Vec<f32>,
+    token_embs: Vec<f32>,
+    device: &Device,
+    d: usize,
+) -> Result<Vec<f32>> {
+    let doc_embs_count = doc_embs.len() / d;
+    let doc_embs_tensor = Tensor::from_vec(doc_embs, (doc_embs_count, d), device)?;
+    let token_embs_count = token_embs.len() / d;
+    let token_embs_tensor = Tensor::from_vec(token_embs, (token_embs_count, d), device)?;
+    let scores: Vec<f32> = doc_embs_tensor
+        .matmul(&token_embs_tensor.t()?)?
+        .max(0)?
+        .to_vec1()?;
+    Ok(scores)
+}
+
 /// ---------- demo ---------------------------------------------
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -121,10 +137,10 @@ async fn main() -> Result<()> {
     let mut redis = redis::Client::open("redis://cache.home:16379")?.get_connection()?;
     let faiss_idx_to_token: HashMap<String, String> = redis.hgetall("faiss_idx_to_token")?;
     let mut index = read_index("/home/slava/Developer/SparKBERT/hnsw.index")?;
+    println!("Vector dictionary size: {}", index.ntotal());
     let d = index.d() as usize;
     let device = device(false)?;
     let index_n_neighbors = 8;
-    println!("Vector dictionary size: {}", index.ntotal());
     let (corpus, queries, qrels) = load_scifact("test")?;
     let pb = ProgressBar::new(corpus.len() as u64);
     pb.set_style(
@@ -149,14 +165,7 @@ async fn main() -> Result<()> {
                 faiss_idx_to_token.get(&idx).unwrap()
             })
             .collect();
-        let doc_embs_count = doc_embs.len() / d;
-        let doc_embs_tensor = Tensor::from_vec(doc_embs, (doc_embs_count, d), &device)?;
-        let token_embs_count = token_embs.len() / d;
-        let token_embs_tensor = Tensor::from_vec(token_embs, (token_embs_count, d), &device)?;
-        let scores: Vec<f32> = doc_embs_tensor
-            .matmul(&token_embs_tensor.t()?)?
-            .max(0)?
-            .to_vec1()?;
+        let scores = calculate_max_sim(doc_embs, token_embs, &device, d)?;
         debug_assert!(tokens.len() == scores.len());
         for (token, score) in tokens.iter().zip(scores.iter()) {
             inverted_index.add_pair(token, doc_id.parse::<u64>()?, *score as f64)?;
