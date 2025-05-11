@@ -5,7 +5,6 @@ mod inverted_index;
 mod util;
 mod vector_index;
 use anyhow::Result;
-use candle_core::Device;
 use candle_core::Tensor;
 use dataset::load_scifact;
 use embs::calc_embs;
@@ -22,6 +21,9 @@ use qdrant_client::qdrant::ScrollPointsBuilder;
 use qdrant_client::Qdrant;
 use redis::Commands;
 use std::collections::HashMap;
+use std::fmt::Write;
+use std::time::Instant;
+use util::device;
 use util::reconstruct_batch;
 
 fn process_batch(
@@ -69,25 +71,6 @@ fn do_smtg() -> Result<()> {
         process_batch(&ids, &texts, &mut index)?;
     }
     println!("{}, {}, {}", corpus.len(), queries.len(), qrels.len());
-    Ok(())
-}
-
-fn build_inverted_index() -> Result<()> {
-    let mut idx = InvertedIndex::open()?;
-
-    // ---------- indexing ----------
-    // business doc A has 2 non‑zero pairs
-    idx.add_pair("42#7", 1, 0.9)?;
-    idx.add_pair("13#2", 1, 0.4)?;
-    idx.add_pair("42#7", 2, 0.8)?;
-    idx.add_pair("11#1", 2, 0.6)?;
-    idx.add_pair("99#5", 2, 0.1)?;
-
-    idx.commit()?; // force merge & commit
-
-    // ---------- search ------------
-    let query_pairs = vec!["42#7".to_string(), "11#1".to_string()];
-    idx.search(&query_pairs, 10)?;
     Ok(())
 }
 
@@ -139,16 +122,25 @@ async fn main() -> Result<()> {
     let faiss_idx_to_token: HashMap<String, String> = redis.hgetall("faiss_idx_to_token")?;
     let mut index = read_index("/home/slava/Developer/SparKBERT/hnsw.index")?;
     let d = index.d() as usize;
-    let device = Device::new_cuda(0)?;
+    let device = device(false)?;
+    let index_n_neighbors = 8;
     println!("Vector dictionary size: {}", index.ntotal());
     let (corpus, queries, qrels) = load_scifact("test")?;
     let pb = ProgressBar::new(corpus.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template(
+                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
+            )
+            .unwrap()
+            .progress_chars("#>-"),
+    );
     for (doc_id, doc) in pb.wrap_iter(corpus.iter()) {
         let doc_embs = load_embs_for_doc_id(&qdrant, d, doc_id).await?;
         let faiss::index::SearchResult {
             distances: _,
             labels,
-        } = index.search(&doc_embs, 8)?;
+        } = index.search(&doc_embs, index_n_neighbors)?;
         let token_embs = reconstruct_batch(&index, &labels)?;
         let tokens: Vec<&String> = labels
             .iter()
@@ -171,5 +163,9 @@ async fn main() -> Result<()> {
         }
     }
     inverted_index.commit()?;
+    let query_pairs = vec!["9733_6".to_string()];
+    let start = Instant::now();
+    inverted_index.search(&query_pairs, 10)?;
+    dbg!(start.elapsed());
     Ok(())
 }
