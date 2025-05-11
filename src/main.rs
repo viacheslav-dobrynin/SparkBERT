@@ -18,7 +18,7 @@ use redis::Commands;
 use std::collections::HashMap;
 use std::time::Instant;
 use util::device;
-use util::reconstruct_batch;
+use vector_index::reconstruct_batch;
 
 fn process_batch(
     ids: &[&String],

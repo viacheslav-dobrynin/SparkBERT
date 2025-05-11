@@ -17,7 +17,7 @@ use rkyv::{rancor::Error, Archive, Deserialize, Serialize};
 
 use crate::dataset::CorpusDoc;
 use crate::score::calculate_max_sim;
-use crate::util::reconstruct_batch;
+use crate::vector_index::reconstruct_batch;
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq)]
 #[rkyv(
