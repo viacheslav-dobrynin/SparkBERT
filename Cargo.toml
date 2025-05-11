@@ -26,4 +26,5 @@ faiss = { path = "../faiss-rs" }
 qdrant-client = "1.14.0"
 tokio = "1.44.2"
 redis = "*"
+rkyv = "*"
 indicatif = "*"
