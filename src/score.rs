@@ -18,3 +18,18 @@ pub fn calculate_max_sim(
         .to_vec1()?;
     Ok(scores)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_calculate_correct_max_sim_scores() {
+        let doc_embs = vec![1f32, 2f32, 2f32, 1f32];
+        let token_embs = vec![2f32, 4f32, 5f32, 1f32, 1f32, 1f32];
+        let device = Device::Cpu;
+        let d = 2;
+        let scores = calculate_max_sim(doc_embs, token_embs, &device, d).unwrap();
+        assert_eq!(scores, vec![10f32, 11f32, 3f32]);
+    }
+}
