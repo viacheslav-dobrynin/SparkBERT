@@ -7,6 +7,7 @@ mod score;
 mod util;
 mod vector_index;
 use anyhow::Result;
+use candle_core::D;
 use dataset::load_scifact;
 use embs::calc_embs;
 use faiss::read_index;
@@ -18,57 +19,7 @@ use redis::Commands;
 use std::collections::HashMap;
 use std::time::Instant;
 use util::device;
-use vector_index::reconstruct_batch;
 
-fn process_batch(
-    ids: &[&String],
-    texts: &[String],
-    index: &mut faiss::index::IndexImpl,
-) -> Result<()> {
-    let embs = calc_embs(texts.iter().map(String::as_str).collect())?;
-    let flat_embs = embs.flatten_all()?.to_vec1::<f32>()?;
-    let faiss::index::SearchResult { distances, labels } = index.search(&flat_embs, 8)?;
-    debug_assert_eq!(labels.len() / 8, embs.dim(0)?);
-    let embs = reconstruct_batch(index, &labels)?;
-    Ok(())
-}
-
-fn do_smtg() -> Result<()> {
-    let mut index = read_index("/home/slava/Developer/SparKBERT/hnsw.index")?;
-    println!("{}", index.ntotal());
-
-    let batch = 128 / 4;
-    let mut ids = Vec::with_capacity(batch);
-    let mut texts = Vec::with_capacity(batch);
-    let (corpus, queries, qrels) = load_scifact("test")?;
-    for (id, doc) in &corpus {
-        let text = if let Some(title) = &doc.title {
-            // одна аллокация, чтобы не делать format! для None
-            let mut s = String::with_capacity(title.len() + 1 + doc.text.len());
-            s.push_str(title);
-            s.push(' ');
-            s.push_str(&doc.text);
-            s
-        } else {
-            doc.text.clone()
-        };
-
-        ids.push(id); // храним только ссылки на id
-        texts.push(text);
-        if texts.len() == batch {
-            process_batch(&ids, &texts, &mut index)?;
-            ids.clear();
-            texts.clear();
-        }
-    }
-    if !texts.is_empty() {
-        process_batch(&ids, &texts, &mut index)?;
-    }
-    println!("{}, {}, {}", corpus.len(), queries.len(), qrels.len());
-    Ok(())
-}
-
-/// ---------- demo ---------------------------------------------
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut redis = redis::Client::open("redis://cache.home:16379")?.get_connection()?;
@@ -78,7 +29,8 @@ async fn main() -> Result<()> {
     let d = index.d() as usize;
     let device = device(false)?;
     let index_n_neighbors = 8;
-    let (corpus, queries, qrels) = load_scifact("test")?;
+    let search_n_neighbors = 3;
+    let (corpus, _queries, _qrelss) = load_scifact("test")?;
     if !redis.exists("postings")? {
         build_postings(
             &corpus,
@@ -104,7 +56,30 @@ async fn main() -> Result<()> {
     }
     inverted_index.commit()?;
     dbg!(inverted_index_building_start.elapsed());
-    let query_pairs = vec!["9733_6".to_string()];
-    inverted_index.search(&query_pairs, 10)?;
+
+    let query = "some test query";
+    let search_start = Instant::now();
+    let query_embs = calc_embs(vec![query], false)?;
+    dbg!(query_embs.dims());
+    let flat_embs = query_embs.flatten_all()?.to_vec1::<f32>()?;
+    dbg!(flat_embs.len());
+    let faiss::index::SearchResult {
+        distances: _,
+        labels,
+    } = index.search(&flat_embs, search_n_neighbors)?;
+    dbg!(&labels);
+    let tokens: Vec<&str> = labels
+        .iter()
+        .map(|idx| {
+            let idx = idx.get().unwrap().to_string();
+            faiss_idx_to_token.get(&idx).map(String::as_str).unwrap()
+        })
+        .collect();
+    debug_assert_eq!(
+        labels.len() / search_n_neighbors,
+        query_embs.dim(D::Minus2)?
+    );
+    inverted_index.search(tokens.as_slice(), 10)?;
+    dbg!(search_start.elapsed());
     Ok(())
 }

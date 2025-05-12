@@ -58,7 +58,7 @@ impl InvertedIndex {
 
     /// execute a query that is a list of `(token#cluster)` strings
     /// returns `Vec<(doc_gid, sum_score)>` sorted desc by sum_score
-    pub fn search(&self, pairs: &[String], top_k: usize) -> Result<()> {
+    pub fn search(&self, pairs: &[&str], top_k: usize) -> Result<()> {
         let reader = self
             .index
             .reader_builder()
@@ -94,7 +94,7 @@ impl InvertedIndex {
 
         let res = searcher.search(&bool_query, &collector)?;
 
-        println!("{res:#?}");
+        //println!("{res:#?}");
         Ok(())
     }
 }
