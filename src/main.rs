@@ -60,14 +60,11 @@ async fn main() -> Result<()> {
     let query = "some test query";
     let search_start = Instant::now();
     let query_embs = calc_embs(vec![query], false)?;
-    dbg!(query_embs.dims());
     let flat_embs = query_embs.flatten_all()?.to_vec1::<f32>()?;
-    dbg!(flat_embs.len());
     let faiss::index::SearchResult {
         distances: _,
         labels,
     } = index.search(&flat_embs, search_n_neighbors)?;
-    dbg!(&labels);
     let tokens: Vec<&str> = labels
         .iter()
         .map(|idx| {
