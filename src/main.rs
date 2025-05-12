@@ -30,6 +30,7 @@ async fn main() -> Result<()> {
     let device = device(false)?;
     let index_n_neighbors = 8;
     let search_n_neighbors = 3;
+    let search_top_k = 10;
     let (corpus, _queries, _qrelss) = load_scifact("test")?;
     if !redis.exists("postings")? {
         build_postings(
@@ -76,7 +77,7 @@ async fn main() -> Result<()> {
         labels.len() / search_n_neighbors,
         query_embs.dim(D::Minus2)?
     );
-    inverted_index.search(tokens.as_slice(), 10)?;
+    inverted_index.search(tokens.as_slice(), search_top_k)?;
     dbg!(search_start.elapsed());
     Ok(())
 }
