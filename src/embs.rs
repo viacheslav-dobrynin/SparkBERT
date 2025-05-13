@@ -1,13 +1,20 @@
 use anyhow::{Error as E, Result};
 use candle_core::Tensor;
-use clap::Parser;
 use tokenizers::PaddingParams;
 
 pub fn calc_embs(sentences: Vec<&str>, apply_pooling: bool) -> Result<Tensor> {
     use tracing_chrome::ChromeLayerBuilder;
     use tracing_subscriber::prelude::*;
 
-    let args = crate::args::Args::parse();
+    let args = crate::args::Args {
+        cpu: false,
+        tracing: false,
+        model_id: Option::None,
+        revision: Option::None,
+        use_pth: false,
+        normalize_embeddings: true,
+        approximate_gelu: false,
+    };
     let _guard = if args.tracing {
         println!("tracing...");
         let (chrome_layer, guard) = ChromeLayerBuilder::new().build();

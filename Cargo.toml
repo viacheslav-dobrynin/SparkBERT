@@ -10,7 +10,7 @@ anyhow = { version = "1", features = ["backtrace"] }
 candle-core = { version = "*", features = ["cuda"] }
 candle-transformers = { version = "*", features = ["cuda"] }
 candle-nn = { version = "*", features = ["cuda"] }
-clap = { version = "4.2.4", features = ["derive"] }
+# clap = { version = "4.2.4", features = ["derive"] }
 hf-hub = "0.4.2"
 tokenizers = { version = "0.21.1", default-features = false, features = [
   "onig",
@@ -28,3 +28,10 @@ tokio = "1.44.2"
 redis = "*"
 rkyv = "*"
 indicatif = "*"
+
+[dev-dependencies]
+criterion = { version = "*", features = ["html_reports"] }
+
+[[bench]]
+name = "vector_search_benchmark"
+harness = false
