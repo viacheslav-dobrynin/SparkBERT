@@ -36,7 +36,7 @@ fn bench_vector_search(c: &mut Criterion) {
     group.bench_function("HNSW", |b| {
         b.iter(|| {
             vector_index
-                .search(black_box(&flat_embs), black_box(3))
+                .search(black_box(&flat_embs), black_box(search_top_k))
                 .unwrap()
         })
     });
