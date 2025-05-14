@@ -5,11 +5,13 @@ use faiss::{read_index, Index};
 use redis::Commands;
 use spar_k_bert::{
     embs::calc_embs,
+    inverted_index,
     run::{find_tokens, load_inverted_index},
 };
 
 fn bench_vector_search(c: &mut Criterion) {
     let mut vector_index = read_index("/home/slava/Developer/SparKBERT/hnsw.index").unwrap();
+    println!("Vector dictionary size: {}", vector_index.ntotal());
     let query = "some test query";
 
     let query_embs = calc_embs(vec![query], false).unwrap();
@@ -22,7 +24,12 @@ fn bench_vector_search(c: &mut Criterion) {
         .get_connection()
         .unwrap();
     let faiss_idx_to_token: HashMap<String, String> = redis.hgetall("faiss_idx_to_token").unwrap();
-    let inverted_index = load_inverted_index(&mut redis).unwrap();
+    let mut inverted_index = load_inverted_index(&mut redis).unwrap();
+    println!(
+        "Inverted index size: {}",
+        inverted_index.get_num_docs().unwrap()
+    );
+    inverted_index.ensure_collector(search_top_k).unwrap();
     let tokens = find_tokens(
         &mut vector_index,
         &search_n_neighbors,

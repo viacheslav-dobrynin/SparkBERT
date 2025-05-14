@@ -42,7 +42,7 @@ async fn main() -> Result<()> {
         )
         .await?;
     }
-    let inverted_index = load_inverted_index(&mut redis)?;
+    let mut inverted_index = load_inverted_index(&mut redis)?;
     let query = "some test query";
     let tokens = find_tokens(
         &mut vector_index,
@@ -50,6 +50,7 @@ async fn main() -> Result<()> {
         &faiss_idx_to_token,
         query,
     )?;
-    inverted_index.search(tokens.as_slice(), search_top_k)?;
+    let results = inverted_index.search(tokens.as_slice(), search_top_k)?;
+    println!("Search results: {:?}", results);
     Ok(())
 }
