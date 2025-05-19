@@ -1,5 +1,6 @@
 use candle_core::utils::{cuda_is_available, metal_is_available};
 use candle_core::{Device, Result};
+use indicatif::{ProgressBar, ProgressStyle};
 
 pub fn device(cpu: bool) -> Result<Device> {
     if cpu {
@@ -21,4 +22,17 @@ pub fn device(cpu: bool) -> Result<Device> {
         }
         Ok(Device::Cpu)
     }
+}
+
+pub fn get_progress_bar(len: u64) -> anyhow::Result<ProgressBar> {
+    let pb = ProgressBar::new(len);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template(
+                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
+            )
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+    anyhow::Ok(pb)
 }

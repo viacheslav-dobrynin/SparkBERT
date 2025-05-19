@@ -6,16 +6,17 @@ use tantivy::{
         agg_result::{AggregationResult, BucketResult},
         AggregationCollector,
     },
+    directory::RamDirectory,
     doc,
     query::{BooleanQuery, TermQuery},
     schema::{Field, IndexRecordOption, Schema, FAST, STORED, STRING},
-    Index, IndexReader, IndexWriter, ReloadPolicy, Term,
+    Index, IndexReader, ReloadPolicy, Searcher, SingleSegmentIndexWriter, Term,
 };
 
 pub struct InvertedIndex {
-    index: Index,
-    writer: IndexWriter,
-    reader: Option<IndexReader>,
+    index: Option<Index>,
+    writer: Option<SingleSegmentIndexWriter>,
+    pub reader: Option<IndexReader>,
     collector_by_top_k: Option<(usize, AggregationCollector)>,
     token_cluster_id: Field,
     doc_id: Field,
@@ -30,12 +31,13 @@ impl InvertedIndex {
         let score = schema_builder.add_f64_field("score", FAST);
         let schema = schema_builder.build();
 
-        let index = Index::builder().schema(schema).create_in_ram()?;
-
-        let writer = index.writer(50_000_000)?; // 50 MB heap
+        let writer = Index::builder()
+            .schema(schema)
+            .single_segment_index_writer(RamDirectory::create(), 50_000_000)?; // 50 MB heap
+        let writer = Some(writer);
 
         Ok(Self {
-            index,
+            index: None,
             writer,
             reader: None,
             collector_by_top_k: None,
@@ -47,7 +49,7 @@ impl InvertedIndex {
 
     /// add one (token,cluster) pair as a sub‑document
     pub fn add_pair(&mut self, token_cluster_id: &str, doc_id: u64, score: f64) -> Result<()> {
-        self.writer.add_document(doc!(
+        self.writer.as_mut().unwrap().add_document(doc!(
             self.token_cluster_id => token_cluster_id,
             self.doc_id => doc_id,
             self.score => score,
@@ -56,35 +58,22 @@ impl InvertedIndex {
     }
 
     /// commit
-    pub fn commit(&mut self) -> Result<()> {
-        self.writer.commit()?;
-        self.reload_reader()?;
-        Ok(())
-    }
-
-    fn reload_reader(&mut self) -> Result<()> {
-        if let Some(reader) = &self.reader {
-            reader.reload()?;
-        }
+    pub fn finalize(&mut self) -> Result<()> {
+        let writer = self.writer.take().unwrap();
+        let index = writer.finalize()?;
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        self.index = Some(index);
+        self.reader = Some(reader);
         Ok(())
     }
 
     pub fn get_num_docs(&mut self) -> Result<u64> {
-        let reader = self.ensure_reader()?;
+        let reader = self.reader.as_ref().unwrap();
         let searcher = reader.searcher();
         Ok(searcher.num_docs())
-    }
-
-    pub fn ensure_reader(&mut self) -> Result<&IndexReader> {
-        if self.reader.is_none() {
-            let reader = self
-                .index
-                .reader_builder()
-                .reload_policy(ReloadPolicy::Manual)
-                .try_into()?;
-            self.reader = Some(reader);
-        }
-        Ok(self.reader.as_ref().unwrap())
     }
 
     pub fn ensure_collector(&mut self, top_k: usize) -> Result<&AggregationCollector> {
@@ -112,13 +101,22 @@ impl InvertedIndex {
 
     /// execute a query that is a list of `(token#cluster)` strings
     /// returns `Vec<(doc_id, sum_score)>` sorted desc by sum_score
-    pub fn search(&mut self, pairs: &[&str], top_k: usize) -> Result<Vec<(u64, f64)>> {
+    pub fn search(
+        &mut self,
+        searcher: Option<&Searcher>,
+        pairs: &[&str],
+        top_k: usize,
+    ) -> Result<Vec<(u64, f64)>> {
         if pairs.is_empty() {
             return Ok(Vec::new());
         }
 
-        let reader = self.ensure_reader()?;
-        let searcher = reader.searcher();
+        let searcher = if let Some(searcher) = searcher {
+            searcher
+        } else {
+            let reader = self.reader.as_ref().unwrap();
+            &reader.searcher()
+        };
 
         let mut term_queries = Vec::with_capacity(pairs.len());
 

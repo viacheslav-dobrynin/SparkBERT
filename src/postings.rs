@@ -4,8 +4,6 @@ use anyhow::Result;
 use candle_core::Device;
 use faiss::index::IndexImpl;
 use faiss::Index;
-use indicatif::ProgressBar;
-use indicatif::ProgressStyle;
 use qdrant_client::qdrant::vectors_output::VectorsOptions;
 use qdrant_client::qdrant::Condition;
 use qdrant_client::qdrant::Filter;
@@ -17,6 +15,7 @@ use rkyv::{rancor::Error, Archive, Deserialize, Serialize};
 
 use crate::dataset::CorpusDoc;
 use crate::score::calculate_max_sim;
+use crate::util::get_progress_bar;
 use crate::vector_index::reconstruct_batch;
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq)]
@@ -82,15 +81,7 @@ pub async fn build_postings(
     device: &Device,
 ) -> Result<()> {
     let qdrant = Qdrant::from_url("http://vectordb.home:6334").build()?;
-    let pb = ProgressBar::new(corpus.len() as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template(
-                "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta})",
-            )
-            .unwrap()
-            .progress_chars("#>-"),
-    );
+    let pb = get_progress_bar(corpus.len() as u64)?;
     for (doc_id, _doc) in pb.wrap_iter(corpus.iter()) {
         let doc_embs = load_embs_for_doc_id(&qdrant, d, doc_id).await?;
         let faiss::index::SearchResult {

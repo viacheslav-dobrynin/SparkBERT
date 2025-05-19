@@ -5,7 +5,6 @@ use faiss::{read_index, Index};
 use redis::Commands;
 use spar_k_bert::{
     embs::calc_embs,
-    inverted_index,
     run::{find_tokens, load_inverted_index},
 };
 
@@ -29,6 +28,7 @@ fn bench_vector_search(c: &mut Criterion) {
         "Inverted index size: {}",
         inverted_index.get_num_docs().unwrap()
     );
+    let searcher = inverted_index.reader.as_ref().unwrap().searcher();
     inverted_index.ensure_collector(search_top_k).unwrap();
     let tokens = find_tokens(
         &mut vector_index,
@@ -50,7 +50,11 @@ fn bench_vector_search(c: &mut Criterion) {
     group.bench_function("SparKBERT", |b| {
         b.iter(|| {
             inverted_index
-                .search(black_box(tokens), black_box(search_top_k))
+                .search(
+                    black_box(Some(&searcher)),
+                    black_box(tokens),
+                    black_box(search_top_k),
+                )
                 .unwrap()
         })
     });

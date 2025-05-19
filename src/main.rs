@@ -16,7 +16,10 @@ use redis::Commands;
 use run::find_tokens;
 use run::load_inverted_index;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::Write;
 use util::device;
+use util::get_progress_bar;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -28,8 +31,8 @@ async fn main() -> Result<()> {
     let device = device(false)?;
     let index_n_neighbors = 8;
     let search_n_neighbors = 3;
-    let search_top_k = 10;
-    let (corpus, _queries, _qrelss) = load_scifact("test")?;
+    let search_top_k = 1000;
+    let (corpus, queries, _qrels) = load_scifact("test")?;
     if !redis.exists("postings")? {
         build_postings(
             &corpus,
@@ -43,14 +46,24 @@ async fn main() -> Result<()> {
         .await?;
     }
     let mut inverted_index = load_inverted_index(&mut redis)?;
-    let query = "some test query";
-    let tokens = find_tokens(
-        &mut vector_index,
-        &search_n_neighbors,
-        &faiss_idx_to_token,
-        query,
-    )?;
-    let results = inverted_index.search(tokens.as_slice(), search_top_k)?;
-    println!("Search results: {:?}", results);
+    let pb = get_progress_bar(queries.len() as u64)?;
+    let mut results: HashMap<String, HashMap<String, f64>> = HashMap::new();
+    for (query_id, query) in pb.wrap_iter(queries.into_iter()) {
+        let tokens = find_tokens(
+            &mut vector_index,
+            &search_n_neighbors,
+            &faiss_idx_to_token,
+            &query.text,
+        )?;
+        let doc_id_score_pairs = inverted_index.search(None, tokens.as_slice(), search_top_k)?;
+        let mut query_results = HashMap::new();
+        for (doc_id, score) in doc_id_score_pairs {
+            query_results.insert(doc_id.to_string(), score);
+        }
+        results.insert(query_id, query_results);
+    }
+    let results_json = serde_json::to_string_pretty(&results)?;
+    let mut results_file = File::create("/home/slava/Developer/SparKBERT/results.json")?;
+    results_file.write_all(results_json.as_bytes())?;
     Ok(())
 }
