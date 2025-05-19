@@ -2,14 +2,16 @@ use std::collections::HashMap;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use faiss::{read_index, Index};
-use redis::Commands;
 use spar_k_bert::{
     embs::calc_embs,
     run::{find_tokens, load_inverted_index},
+    vector_index::load_faiss_idx_to_token,
 };
 
 fn bench_vector_search(c: &mut Criterion) {
     let mut vector_index = read_index("/home/slava/Developer/SparKBERT/hnsw.index").unwrap();
+    let faiss_idx_to_token: HashMap<String, String> =
+        load_faiss_idx_to_token("/home/slava/Developer/SparKBERT/faiss_idx_to_token.json").unwrap();
     println!("Vector dictionary size: {}", vector_index.ntotal());
     let query = "some test query";
 
@@ -22,7 +24,6 @@ fn bench_vector_search(c: &mut Criterion) {
         .unwrap()
         .get_connection()
         .unwrap();
-    let faiss_idx_to_token: HashMap<String, String> = redis.hgetall("faiss_idx_to_token").unwrap();
     let mut inverted_index = load_inverted_index(&mut redis).unwrap();
     println!(
         "Inverted index size: {}",

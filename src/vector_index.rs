@@ -1,6 +1,17 @@
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::BufReader;
+
 use faiss::Index;
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::slice::ParallelSliceMut;
+
+pub fn load_faiss_idx_to_token(json_path: &str) -> anyhow::Result<HashMap<String, String>> {
+    let file = File::open(json_path)?;
+    let reader = BufReader::new(file);
+    let faiss_idx_to_token: HashMap<String, String> = serde_json::from_reader(reader)?;
+    anyhow::Ok(faiss_idx_to_token)
+}
 
 pub fn reconstruct_batch<T>(index: &T, labels: &[faiss::Idx]) -> anyhow::Result<Vec<f32>>
 where

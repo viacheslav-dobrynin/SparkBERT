@@ -20,11 +20,13 @@ use std::fs::File;
 use std::io::Write;
 use util::device;
 use util::get_progress_bar;
+use vector_index::load_faiss_idx_to_token;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut redis = redis::Client::open("redis://cache.home:16379")?.get_connection()?;
-    let faiss_idx_to_token: HashMap<String, String> = redis.hgetall("faiss_idx_to_token")?;
+    let faiss_idx_to_token: HashMap<String, String> =
+        load_faiss_idx_to_token("/home/slava/Developer/SparKBERT/faiss_idx_to_token.json")?;
     let mut vector_index = read_index("/home/slava/Developer/SparKBERT/hnsw.index")?;
     println!("Vector dictionary size: {}", vector_index.ntotal());
     let d = vector_index.d() as usize;
