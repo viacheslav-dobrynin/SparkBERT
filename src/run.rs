@@ -1,4 +1,7 @@
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Instant,
+};
 
 use anyhow::{Ok, Result};
 use candle_core::D;
@@ -7,19 +10,47 @@ use redis::{Commands, Connection};
 
 use crate::{embs::calc_embs, inverted_index::InvertedIndex, postings::ArchivedPosting};
 
+const MAX_DF_RATIO: f64 = 0.15;
+
 pub fn load_inverted_index(redis: &mut Connection) -> Result<InvertedIndex> {
     let inverted_index_building_start = Instant::now();
-    let mut inverted_index = InvertedIndex::open()?;
-    let postings: Vec<Vec<u8>> = redis.lrange("postings", 0, -1)?;
-    for raw in postings {
-        let posting = unsafe { rkyv::access_unchecked::<ArchivedPosting>(raw.as_slice()) };
-        let token = posting.token.as_str();
-        let doc_id: u64 = posting.doc_id.into();
-        let score32: f32 = posting.score.into();
-        let score = score32 as f64;
-        inverted_index.add_pair(token, doc_id, score)?;
+    let raw_postings: Vec<String> = redis.lrange("postings_py", 0, -1)?;
+    let mut per_token_docs: HashMap<String, HashSet<u64>> = HashMap::new();
+
+    for raw in &raw_postings {
+        let mut it = raw.splitn(3, '|');
+        let token = it.next().unwrap().to_string();
+        let doc_id = it.next().unwrap().parse()?;
+        per_token_docs.entry(token).or_default().insert(doc_id);
     }
-    inverted_index.commit()?;
+    let total_docs = per_token_docs
+        .values()
+        .flat_map(|hs| hs.iter().copied())
+        .collect::<HashSet<u64>>()
+        .len() as f64;
+    let stop_words: HashSet<String> = per_token_docs
+        .into_iter()
+        .filter(|(_, docs)| (docs.len() as f64 / total_docs) >= MAX_DF_RATIO)
+        .map(|(tok, _)| tok)
+        .collect();
+
+    let mut inverted_index = InvertedIndex::open()?;
+
+    for raw in raw_postings {
+        let mut it = raw.splitn(3, '|');
+        let token = it.next().unwrap().to_string();
+        if stop_words.contains(&token) {
+            continue;
+        }
+
+        let doc_id = it.next().unwrap().parse()?;
+        let score32: f32 = it.next().unwrap().parse()?;
+        let score = score32 as f64;
+        if score >= 22.7136 {
+            inverted_index.add_pair(&token, doc_id, score)?;
+        }
+    }
+    inverted_index.finalize()?;
     dbg!(inverted_index_building_start.elapsed());
     Ok(inverted_index)
 }
