@@ -52,8 +52,11 @@ fn read_qrels(path: impl AsRef<Path>) -> Result<Qrels> {
     for line in file.lines() {
         let line = line?;
         let parts: Vec<_> = line.split_whitespace().collect();
-        if parts.len() != 3 || parts[0] == "query-id" {
-            println!("First line or wrong len: {}", parts.len());
+        if parts[0] == "query-id" {
+            // Skip first line
+            continue;
+        } else if parts.len() != 3 {
+            println!("Wrong len: {}", parts.len());
             continue;
         }
         let (q, d, rel) = (parts[0], parts[1], parts[2].parse::<i32>()?);
