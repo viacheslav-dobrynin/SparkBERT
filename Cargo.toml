@@ -28,6 +28,7 @@ tokio = "1.44.2"
 redis = "*"
 rkyv = "*"
 indicatif = "*"
+float8 = "*"
 
 [dev-dependencies]
 criterion = { version = "*", features = ["html_reports"] }

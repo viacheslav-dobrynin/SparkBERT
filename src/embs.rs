@@ -58,9 +58,9 @@ pub fn calc_embs(sentences: Vec<&str>, apply_pooling: bool) -> Result<Tensor> {
     let token_ids = Tensor::stack(&token_ids, 0)?;
     let attention_mask = Tensor::stack(&attention_mask, 0)?;
     let token_type_ids = token_ids.zeros_like()?;
-    println!("running inference on batch {:?}", token_ids.shape());
+    //println!("running inference on batch {:?}", token_ids.shape());
     let embeddings = model.forward(&token_ids, &token_type_ids, Some(&attention_mask))?;
-    println!("generated embeddings {:?}", embeddings.shape());
+    //println!("generated embeddings {:?}", embeddings.shape());
     let embeddings = if apply_pooling {
         // Apply some avg-pooling by taking the mean embedding value for all tokens (including padding)
         let (_n_sentence, n_tokens, _hidden_size) = embeddings.dims3()?;
@@ -73,8 +73,8 @@ pub fn calc_embs(sentences: Vec<&str>, apply_pooling: bool) -> Result<Tensor> {
     } else {
         embeddings
     };
-    println!("Loaded and encoded {:?}", start.elapsed());
-    println!("pooled embeddings {:?}", embeddings.shape());
+    //println!("Loaded and encoded {:?}", start.elapsed());
+    //println!("pooled embeddings {:?}", embeddings.shape());
 
     Ok(embeddings)
 }

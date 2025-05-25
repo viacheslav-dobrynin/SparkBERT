@@ -1,4 +1,5 @@
 use anyhow::Result;
+use float8::F8E4M3;
 use serde_json::json;
 use tantivy::{
     aggregation::{
@@ -28,7 +29,7 @@ impl InvertedIndex {
         let mut schema_builder = Schema::builder();
         let token_cluster_id = schema_builder.add_text_field("token_cluster_id", STRING);
         let doc_id = schema_builder.add_u64_field("doc_id", FAST | STORED);
-        let score = schema_builder.add_f64_field("score", FAST);
+        let score = schema_builder.add_u64_field("score", FAST);
         let schema = schema_builder.build();
 
         let writer = Index::builder()
@@ -48,11 +49,11 @@ impl InvertedIndex {
     }
 
     /// add one (token,cluster) pair as a sub‑document
-    pub fn add_pair(&mut self, token_cluster_id: &str, doc_id: u64, score: f64) -> Result<()> {
+    pub fn add_pair(&mut self, token_cluster_id: &str, doc_id: u64, score: f32) -> Result<()> {
         self.writer.as_mut().unwrap().add_document(doc!(
             self.token_cluster_id => token_cluster_id,
             self.doc_id => doc_id,
-            self.score => score,
+            self.score => F8E4M3::from_f32(score).to_bits() as u64,
         ))?;
         Ok(())
     }
@@ -60,6 +61,7 @@ impl InvertedIndex {
     /// commit
     pub fn finalize(&mut self) -> Result<()> {
         let writer = self.writer.take().unwrap();
+        println!("Inverted index memory usage: {}", &writer.mem_usage());
         let index = writer.finalize()?;
         let reader = index
             .reader_builder()

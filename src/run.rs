@@ -44,8 +44,7 @@ pub fn load_inverted_index(redis: &mut Connection) -> Result<InvertedIndex> {
         }
 
         let doc_id = it.next().unwrap().parse()?;
-        let score32: f32 = it.next().unwrap().parse()?;
-        let score = score32 as f64;
+        let score: f32 = it.next().unwrap().parse()?;
         if score >= 22.7136 {
             inverted_index.add_pair(&token, doc_id, score)?;
         }
