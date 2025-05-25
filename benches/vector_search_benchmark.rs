@@ -9,17 +9,24 @@ use spar_k_bert::{
 };
 
 fn bench_vector_search(c: &mut Criterion) {
-    let mut vector_index = read_index("/home/slava/Developer/SparKBERT/hnsw.index").unwrap();
+    let mut scifact_vector_index =
+        read_index("/home/slava/Developer/SparKBERT/scifact.hnsw.faiss").unwrap();
+    println!(
+        "Scifact vector index size: {}",
+        scifact_vector_index.ntotal()
+    );
+
+    let mut vector_dictionary = read_index("/home/slava/Developer/SparKBERT/hnsw.index").unwrap();
     let faiss_idx_to_token: HashMap<String, String> =
         load_faiss_idx_to_token("/home/slava/Developer/SparKBERT/faiss_idx_to_token.json").unwrap();
-    println!("Vector dictionary size: {}", vector_index.ntotal());
+    println!("Vector dictionary size: {}", vector_dictionary.ntotal());
     let query = "some test query";
 
     let query_embs = calc_embs(vec![query], false).unwrap();
     let flat_embs = query_embs.flatten_all().unwrap().to_vec1::<f32>().unwrap();
 
     let search_n_neighbors = 3;
-    let search_top_k = 10;
+    let search_top_k = 1000;
     let mut redis = redis::Client::open("redis://cache.home:16379")
         .unwrap()
         .get_connection()
@@ -32,7 +39,7 @@ fn bench_vector_search(c: &mut Criterion) {
     let searcher = inverted_index.reader.as_ref().unwrap().searcher();
     inverted_index.ensure_collector(search_top_k).unwrap();
     let tokens = find_tokens(
-        &mut vector_index,
+        &mut vector_dictionary,
         &search_n_neighbors,
         &faiss_idx_to_token,
         query,
@@ -43,7 +50,7 @@ fn bench_vector_search(c: &mut Criterion) {
     let mut group = c.benchmark_group("Vector Search");
     group.bench_function("HNSW", |b| {
         b.iter(|| {
-            vector_index
+            scifact_vector_index
                 .search(black_box(&flat_embs), black_box(search_top_k))
                 .unwrap()
         })

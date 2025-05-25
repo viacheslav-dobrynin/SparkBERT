@@ -7,7 +7,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// ---------- типы данных ----------
 #[derive(Debug, Deserialize)]
 pub struct CorpusDoc {
     pub title: Option<String>,
@@ -24,10 +23,8 @@ pub type Corpus = HashMap<String, CorpusDoc>;
 pub type Queries = HashMap<String, Query>;
 pub type Qrels = HashMap<String, HashMap<String, i32>>;
 
-/// базовая директория с уже-скачанным датасетом
 const DATA_DIR: &str = "datasets/scifact";
 
-/// ---------- утилиты чтения ----------
 fn read_jsonl<T: for<'de> Deserialize<'de>>(path: impl AsRef<Path>) -> Result<HashMap<String, T>> {
     let file = BufReader::new(File::open(&path)?);
     let mut map = HashMap::new();
@@ -67,7 +64,6 @@ fn read_qrels(path: impl AsRef<Path>) -> Result<Qrels> {
     Ok(map)
 }
 
-/// ---------- публичная функция ----------
 pub fn load_scifact(split: &str) -> Result<(Corpus, Queries, Qrels)> {
     let base = PathBuf::from(DATA_DIR);
 
