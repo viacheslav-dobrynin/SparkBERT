@@ -1,66 +1,84 @@
+use std::{
+    cmp::Reverse,
+    collections::{BinaryHeap, HashMap},
+};
+
 use anyhow::Result;
 use float8::F8E4M3;
-use serde_json::json;
 use tantivy::{
-    aggregation::{
-        agg_req::Aggregations,
-        agg_result::{AggregationResult, BucketResult},
-        AggregationCollector,
-    },
+    collector::TopDocs,
     directory::RamDirectory,
-    doc,
-    query::{BooleanQuery, TermQuery},
-    schema::{Field, IndexRecordOption, Schema, FAST, STORED, STRING},
-    Index, IndexReader, ReloadPolicy, Searcher, SingleSegmentIndexWriter, Term,
+    postings::{Postings, SegmentPostings},
+    query::{BooleanQuery, Query, QueryClone, Scorer, TermQuery, Weight},
+    schema::{
+        Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, STORED,
+    },
+    DocAddress, DocSet, Index, IndexReader, ReloadPolicy, Score, Searcher,
+    SingleSegmentIndexWriter, TantivyDocument, Term, TERMINATED,
 };
 
 pub struct InvertedIndex {
     index: Option<Index>,
     writer: Option<SingleSegmentIndexWriter>,
     pub reader: Option<IndexReader>,
-    collector_by_top_k: Option<(usize, AggregationCollector)>,
     token_cluster_id: Field,
     doc_id: Field,
-    score: Field,
+
+    pending: HashMap<u64, tantivy::TantivyDocument>,
 }
 
 impl InvertedIndex {
     pub fn open() -> Result<Self> {
         let mut schema_builder = Schema::builder();
-        let token_cluster_id = schema_builder.add_text_field("token_cluster_id", STRING);
+        let tok_opts = TextOptions::default().set_indexing_options(
+            TextFieldIndexing::default()
+                .set_tokenizer("raw")
+                .set_index_option(IndexRecordOption::WithFreqs),
+        );
+        let token_cluster_id = schema_builder.add_text_field("token", tok_opts);
         let doc_id = schema_builder.add_u64_field("doc_id", FAST | STORED);
-        let score = schema_builder.add_u64_field("score", FAST);
         let schema = schema_builder.build();
 
         let writer = Index::builder()
             .schema(schema)
-            .single_segment_index_writer(RamDirectory::create(), 50_000_000)?; // 50 MB heap
+            .single_segment_index_writer(RamDirectory::create(), 500_000_000)?; // 500 MB heap
         let writer = Some(writer);
 
         Ok(Self {
             index: None,
             writer,
             reader: None,
-            collector_by_top_k: None,
             token_cluster_id,
             doc_id,
-            score,
+            pending: HashMap::new(),
         })
     }
 
-    /// add one (token,cluster) pair as a sub‑document
     pub fn add_pair(&mut self, token_cluster_id: &str, doc_id: u64, score: f32) -> Result<()> {
-        self.writer.as_mut().unwrap().add_document(doc!(
-            self.token_cluster_id => token_cluster_id,
-            self.doc_id => doc_id,
-            self.score => F8E4M3::from_f32(score).to_bits() as u64,
-        ))?;
+        let reps = F8E4M3::from_f32(score).to_bits();
+        if reps == 0 {
+            return Ok(());
+        }
+
+        let doc_entry = self.pending.entry(doc_id).or_insert_with(|| {
+            let mut d = tantivy::TantivyDocument::new();
+            d.add_u64(self.doc_id, doc_id);
+            d
+        });
+
+        for _ in 0..reps {
+            doc_entry.add_text(self.token_cluster_id, token_cluster_id);
+        }
         Ok(())
     }
 
     /// commit
     pub fn finalize(&mut self) -> Result<()> {
-        let writer = self.writer.take().unwrap();
+        let mut writer = self.writer.take().unwrap();
+        for doc in self.pending.values() {
+            writer.add_document(doc.clone())?;
+        }
+        self.pending.clear();
         println!("Inverted index memory usage: {}", &writer.mem_usage());
         let index = writer.finalize()?;
         let reader = index
@@ -78,29 +96,7 @@ impl InvertedIndex {
         Ok(searcher.num_docs())
     }
 
-    pub fn ensure_collector(&mut self, top_k: usize) -> Result<&AggregationCollector> {
-        if self.collector_by_top_k.is_none() || self.collector_by_top_k.as_ref().unwrap().0 != top_k
-        {
-            let aggs: Aggregations = serde_json::from_value(json!({
-                "by_doc_id": {
-                    "terms": {
-                        "field": "doc_id",
-                        "order": { "sum_score": "desc" },
-                        "size": top_k
-                    },
-                    "aggs": {
-                        "sum_score": {
-                            "sum": { "field": "score" }
-                        }
-                    }
-                }
-            }))?;
-            let collector = AggregationCollector::from_aggs(aggs, Default::default());
-            self.collector_by_top_k = Some((top_k, collector));
-        }
-        Ok(&self.collector_by_top_k.as_ref().unwrap().1)
-    }
-
+    // TODO: 1. построить графики качество/время 2. посмотреть на глубину обхода постинг листов
     /// execute a query that is a list of `(token#cluster)` strings
     /// returns `Vec<(doc_id, sum_score)>` sorted desc by sum_score
     pub fn search(
@@ -112,74 +108,175 @@ impl InvertedIndex {
         if pairs.is_empty() {
             return Ok(Vec::new());
         }
-
         let searcher = if let Some(searcher) = searcher {
             searcher
         } else {
-            let reader = self.reader.as_ref().unwrap();
-            &reader.searcher()
+            &self.reader.as_ref().unwrap().searcher()
         };
 
-        let mut term_queries = Vec::with_capacity(pairs.len());
-
-        for token_cluster_id in pairs {
+        let mut tantivy_doc_to_score: HashMap<DocAddress, u32> = HashMap::new();
+        for &token_cluster_id in pairs {
             let term = Term::from_field_text(self.token_cluster_id, token_cluster_id);
-            let query = TermQuery::new(term, IndexRecordOption::Basic);
-            term_queries.push(Box::new(query) as Box<dyn tantivy::query::Query>);
-        }
+            for (seg_ord, seg_reader) in searcher.segment_readers().iter().enumerate() {
+                let inv = seg_reader.inverted_index(self.token_cluster_id)?;
+                if let Some(info) = inv.get_term_info(&term)? {
+                    let mut postings =
+                        inv.read_postings_from_terminfo(&info, IndexRecordOption::WithFreqs)?;
 
-        let bool_query = BooleanQuery::union(term_queries);
-
-        let collector = self.ensure_collector(top_k)?;
-        let agg_result = searcher.search(&bool_query, collector)?;
-
-        let mut results = Vec::new();
-
-        if let Some(by_doc_id) = agg_result.0.get("by_doc_id") {
-            match by_doc_id {
-                AggregationResult::BucketResult(bucker_result) => match bucker_result {
-                    BucketResult::Terms {
-                        buckets,
-                        sum_other_doc_count: _,
-                        doc_count_error_upper_bound: _,
-                    } => {
-                        for bucket in buckets {
-                            let doc_id = match bucket.key {
-                                tantivy::aggregation::Key::Str(_) => todo!(),
-                                tantivy::aggregation::Key::I64(_) => todo!(),
-                                tantivy::aggregation::Key::U64(key) => key,
-                                tantivy::aggregation::Key::F64(_) => todo!(),
-                            };
-                            let sum_score = bucket.sub_aggregation.0.get("sum_score").unwrap();
-                            let score =match sum_score {
-                                AggregationResult::BucketResult(_bucket_result) => todo!(),
-                                AggregationResult::MetricResult(metric_result) => {
-                                    match metric_result {
-                                        tantivy::aggregation::agg_result::MetricResult::Average(_single_metric_result) => todo!(),
-                                        tantivy::aggregation::agg_result::MetricResult::Count(_single_metric_result) => todo!(),
-                                        tantivy::aggregation::agg_result::MetricResult::Max(_single_metric_result) => todo!(),
-                                        tantivy::aggregation::agg_result::MetricResult::Min(_single_metric_result) => todo!(),
-                                        tantivy::aggregation::agg_result::MetricResult::Stats(_stats) => todo!(),
-                                        tantivy::aggregation::agg_result::MetricResult::ExtendedStats(_extended_stats) => todo!(),
-                                        tantivy::aggregation::agg_result::MetricResult::Sum(single_metric_result) => {
-                                            single_metric_result.value.unwrap()
-                                        },
-                                        tantivy::aggregation::agg_result::MetricResult::Percentiles(_percentiles_metric_result) => todo!(),
-                                        tantivy::aggregation::agg_result::MetricResult::TopHits(_top_hits_metric_result) => todo!(),
-                                        tantivy::aggregation::agg_result::MetricResult::Cardinality(_single_metric_result) => todo!(),
-                                    }
-                                },
-                            };
-                            results.push((doc_id, score));
-                        }
+                    let mut doc = postings.doc();
+                    while doc != TERMINATED {
+                        *tantivy_doc_to_score
+                            .entry(DocAddress {
+                                segment_ord: seg_ord as u32,
+                                doc_id: doc,
+                            })
+                            .or_default() += postings.term_freq();
+                        doc = postings.advance();
                     }
-                    BucketResult::Histogram { buckets: _ } => todo!(),
-                    BucketResult::Range { buckets: _ } => todo!(),
-                },
-                AggregationResult::MetricResult(_metric_result) => todo!(),
+                }
+            }
+        }
+        // --------- 2. top-k по сумме tf ------------------
+        let mut heap = BinaryHeap::with_capacity(top_k + 1);
+        for (doc, score) in tantivy_doc_to_score {
+            heap.push((Reverse(score), doc));
+            if heap.len() > top_k {
+                heap.pop();
             }
         }
 
+        //let mut clauses = Vec::with_capacity(pairs.len());
+        //for t in pairs {
+        //    let tq = TermQuery::new(
+        //        Term::from_field_text(self.token_cluster_id, t),
+        //        IndexRecordOption::WithFreqs,
+        //    );
+        //    clauses.push(Box::new(tq) as Box<dyn tantivy::query::Query>);
+        //}
+        //let bool_q = BooleanQuery::union(clauses);
+
+        //let hits = searcher.search(&bool_q, &TopDocs::with_limit(top_k))?;
+
+        //let mut results = Vec::new();
+        //for (score, doc_addr) in hits {
+        //    let retrieved_doc: TantivyDocument = searcher.doc(doc_addr)?;
+        //    let doc_id: u64 = retrieved_doc
+        //        .get_first(self.doc_id)
+        //        .unwrap()
+        //        .as_u64()
+        //        .unwrap();
+        //    results.push((doc_id, score as f64));
+        //}
+        let mut results = Vec::with_capacity(heap.len());
+        for (Reverse(score), doc_addr) in heap {
+            let retrieved_doc: TantivyDocument = searcher.doc(doc_addr)?;
+            let doc_id: u64 = retrieved_doc
+                .get_first(self.doc_id)
+                .unwrap()
+                .as_u64()
+                .unwrap();
+            results.push((doc_id, score as f64));
+        }
         Ok(results)
+        //let mut clauses = Vec::with_capacity(pairs.len());
+        //for &tok in pairs {
+        //    let term = Term::from_field_text(self.token_cluster_id, tok);
+        //    clauses.push(Box::new(TfTermQuery::new(term)) as Box<dyn Query>);
+        //}
+        //let bool_q = BooleanQuery::union(clauses);
+
+        //let hits = searcher.search(&bool_q, &tantivy::collector::TopDocs::with_limit(top_k))?;
+
+        //let mut results = Vec::with_capacity(hits.len());
+        //for (score, doc_addr) in hits {
+        //    let retrieved_doc: TantivyDocument = searcher.doc(doc_addr)?;
+        //    let doc_id: u64 = retrieved_doc
+        //        .get_first(self.doc_id)
+        //        .unwrap()
+        //        .as_u64()
+        //        .unwrap();
+        //    results.push((doc_id, score as f64));
+        //}
+        //Ok(results)
+    }
+}
+
+// TF Scorer
+struct TfScorer {
+    postings: SegmentPostings,
+}
+
+impl DocSet for TfScorer {
+    fn advance(&mut self) -> tantivy::DocId {
+        self.postings.advance();
+        self.doc()
+    }
+
+    fn doc(&self) -> tantivy::DocId {
+        self.postings.doc()
+    }
+
+    fn size_hint(&self) -> u32 {
+        unimplemented!()
+    }
+}
+
+impl Scorer for TfScorer {
+    fn score(&mut self) -> tantivy::Score {
+        self.postings.term_freq() as Score
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TfTermQuery {
+    term: Term,
+}
+
+impl TfTermQuery {
+    pub fn new(term: Term) -> Self {
+        Self { term }
+    }
+}
+
+struct TfWeight {
+    term: Term,
+}
+
+impl Weight for TfWeight {
+    fn scorer(
+        &self,
+        reader: &tantivy::SegmentReader,
+        boost: Score,
+    ) -> tantivy::Result<Box<dyn Scorer>> {
+        let inv = reader.inverted_index(self.term.field())?;
+        if let Some(info) = inv.get_term_info(&self.term)? {
+            let postings = inv.read_postings_from_terminfo(
+                &info,
+                tantivy::schema::IndexRecordOption::WithFreqs,
+            )?;
+            Ok(Box::new(TfScorer { postings }))
+        } else {
+            Ok(Box::new(tantivy::query::EmptyScorer))
+        }
+    }
+
+    fn explain(
+        &self,
+        reader: &tantivy::SegmentReader,
+        doc: tantivy::DocId,
+    ) -> tantivy::Result<tantivy::query::Explanation> {
+        unimplemented!()
+    }
+}
+
+impl Query for TfTermQuery {
+    fn weight(
+        &self,
+        enable_scoring: tantivy::query::EnableScoring<'_>,
+    ) -> tantivy::Result<Box<dyn tantivy::query::Weight>> {
+        let weight = TfWeight {
+            term: self.term.clone(),
+        };
+        tantivy::Result::Ok(Box::new(weight))
     }
 }

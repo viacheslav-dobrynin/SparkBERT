@@ -9,6 +9,14 @@ use spar_k_bert::{
 };
 
 fn bench_vector_search(c: &mut Criterion) {
+    // Setup common
+    let search_top_k = 1000;
+    let queries = vec![
+        "some test query",
+        "Bariatric surgery has a positive impact on mental health.",
+        "All hematopoietic stem cells segregate their chromosomes randomly.",
+    ];
+    // Setup HNSW
     let mut scifact_vector_index =
         read_index("/home/slava/Developer/SparKBERT/scifact.hnsw.faiss").unwrap();
     println!(
@@ -16,17 +24,12 @@ fn bench_vector_search(c: &mut Criterion) {
         scifact_vector_index.ntotal()
     );
 
+    // Setup SparKBERT
     let mut vector_dictionary = read_index("/home/slava/Developer/SparKBERT/hnsw.index").unwrap();
     let faiss_idx_to_token: HashMap<String, String> =
         load_faiss_idx_to_token("/home/slava/Developer/SparKBERT/faiss_idx_to_token.json").unwrap();
     println!("Vector dictionary size: {}", vector_dictionary.ntotal());
-    let query = "some test query";
-
-    let query_embs = calc_embs(vec![query], false).unwrap();
-    let flat_embs = query_embs.flatten_all().unwrap().to_vec1::<f32>().unwrap();
-
     let search_n_neighbors = 3;
-    let search_top_k = 1000;
     let mut redis = redis::Client::open("redis://cache.home:16379")
         .unwrap()
         .get_connection()
@@ -37,35 +40,43 @@ fn bench_vector_search(c: &mut Criterion) {
         inverted_index.get_num_docs().unwrap()
     );
     let searcher = inverted_index.reader.as_ref().unwrap().searcher();
-    inverted_index.ensure_collector(search_top_k).unwrap();
-    let tokens = find_tokens(
-        &mut vector_dictionary,
-        &search_n_neighbors,
-        &faiss_idx_to_token,
-        query,
-    )
-    .unwrap();
-    let tokens = tokens.as_slice();
 
+    // Setup benchmark
     let mut group = c.benchmark_group("Vector Search");
-    group.bench_function("HNSW", |b| {
-        b.iter(|| {
-            scifact_vector_index
-                .search(black_box(&flat_embs), black_box(search_top_k))
-                .unwrap()
-        })
-    });
-    group.bench_function("SparKBERT", |b| {
-        b.iter(|| {
-            inverted_index
-                .search(
-                    black_box(Some(&searcher)),
-                    black_box(tokens),
-                    black_box(search_top_k),
-                )
-                .unwrap()
-        })
-    });
+    for query in &queries {
+        let query_embs = calc_embs(vec![query], true).unwrap();
+        let flat_embs = query_embs.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+
+        let tokens = find_tokens(
+            &mut vector_dictionary,
+            &search_n_neighbors,
+            &faiss_idx_to_token,
+            query,
+        )
+        .unwrap();
+        let tokens = tokens.as_slice();
+
+        let bench_name = &query.split_once(" ").unwrap().0;
+
+        group.bench_function(format!("HNSW/{}", bench_name), |b| {
+            b.iter(|| {
+                scifact_vector_index
+                    .search(black_box(&flat_embs), black_box(search_top_k))
+                    .unwrap()
+            })
+        });
+        group.bench_function(format!("SparKBERT/{}", bench_name), |b| {
+            b.iter(|| {
+                inverted_index
+                    .search(
+                        black_box(Some(&searcher)),
+                        black_box(tokens),
+                        black_box(search_top_k),
+                    )
+                    .unwrap()
+            })
+        });
+    }
     group.finish();
 }
 
