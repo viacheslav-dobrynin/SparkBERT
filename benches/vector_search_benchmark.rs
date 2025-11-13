@@ -2,7 +2,7 @@ use std::{collections::HashMap, time::Duration};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use faiss::{read_index, Index};
-use spar_k_bert::{
+use spark_bert::{
     embs::calc_embs,
     run::{find_tokens, load_inverted_index},
     vector_index::load_faiss_idx_to_token,
