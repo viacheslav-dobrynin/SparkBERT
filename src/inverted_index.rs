@@ -5,15 +5,19 @@ use std::{
 
 use anyhow::Result;
 use float8::F8E4M3;
+use rayon::{
+    iter::{IntoParallelRefIterator, ParallelIterator},
+    slice::ParallelSlice,
+};
 use tantivy::{
     collector::TopDocs,
     directory::RamDirectory,
-    postings::{Postings, SegmentPostings},
+    postings::{self, Postings, SegmentPostings},
     query::{BooleanQuery, Query, QueryClone, Scorer, TermQuery, Weight},
     schema::{
         Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, STORED,
     },
-    DocAddress, DocSet, Index, IndexReader, ReloadPolicy, Score, Searcher,
+    DocAddress, DocSet, HasLen, Index, IndexReader, ReloadPolicy, Score, Searcher,
     SingleSegmentIndexWriter, TantivyDocument, Term, TERMINATED,
 };
 
@@ -114,36 +118,73 @@ impl InvertedIndex {
             &self.reader.as_ref().unwrap().searcher()
         };
 
-        let mut tantivy_doc_to_score: HashMap<DocAddress, u32> = HashMap::new();
-        for &token_cluster_id in pairs {
-            let term = Term::from_field_text(self.token_cluster_id, token_cluster_id);
-            for (seg_ord, seg_reader) in searcher.segment_readers().iter().enumerate() {
-                let inv = seg_reader.inverted_index(self.token_cluster_id)?;
-                if let Some(info) = inv.get_term_info(&term)? {
-                    let mut postings =
-                        inv.read_postings_from_terminfo(&info, IndexRecordOption::WithFreqs)?;
+        //let segment_readers = searcher.segment_readers();
+        //debug_assert!(segment_readers.len() == 1);
+        //let segment_reader = &segment_readers[0];
+        //let inverted_index = segment_reader.inverted_index(self.token_cluster_id)?;
+        //let term_infos: Vec<_> = pairs
+        //    .iter()
+        //    .map(|&s| {
+        //        let term = Term::from_field_text(self.token_cluster_id, s);
+        //        let term_info = inverted_index.get_term_info(&term)?;
+        //        Ok(term_info) // одна критсекция
+        //    })
+        //    .collect::<Result<_>>()?;
+        //let tantivy_doc_to_score = term_infos
+        //    .par_chunks(15)
+        //    .map(|chunk| -> Result<HashMap<DocAddress, u32>> {
+        //        let mut tantivy_doc_to_score_for_chunk = HashMap::new();
+        //        for term_info in chunk.iter().flatten() {
+        //            let mut postings = inverted_index
+        //                .read_postings_from_terminfo(term_info, IndexRecordOption::WithFreqs)?;
+        //            let mut doc = postings.doc();
+        //            while doc != TERMINATED {
+        //                *tantivy_doc_to_score_for_chunk
+        //                    .entry(DocAddress {
+        //                        segment_ord: 0,
+        //                        doc_id: doc,
+        //                    })
+        //                    .or_default() += postings.term_freq();
+        //                doc = postings.advance();
+        //            }
+        //        }
+        //        Ok(tantivy_doc_to_score_for_chunk)
+        //    })
+        //    .try_reduce(HashMap::new, |mut acc, h| {
+        //        for (doc, tf) in h {
+        //            *acc.entry(doc).or_default() += tf;
+        //        }
+        //        Ok(acc)
+        //    })?;
+        //let mut tantivy_doc_to_score: HashMap<DocAddress, u32> = HashMap::new();
+        //for &token_cluster_id in pairs {
+        //    let term = Term::from_field_text(self.token_cluster_id, token_cluster_id);
+        //    for (seg_ord, seg_reader) in searcher.segment_readers().iter().enumerate() {
+        //        let inv = seg_reader.inverted_index(self.token_cluster_id)?;
+        //        if let Some(info) = inv.get_term_info(&term)? {
+        //            let mut postings =
+        //                inv.read_postings_from_terminfo(&info, IndexRecordOption::WithFreqs)?;
 
-                    let mut doc = postings.doc();
-                    while doc != TERMINATED {
-                        *tantivy_doc_to_score
-                            .entry(DocAddress {
-                                segment_ord: seg_ord as u32,
-                                doc_id: doc,
-                            })
-                            .or_default() += postings.term_freq();
-                        doc = postings.advance();
-                    }
-                }
-            }
-        }
-        // --------- 2. top-k по сумме tf ------------------
-        let mut heap = BinaryHeap::with_capacity(top_k + 1);
-        for (doc, score) in tantivy_doc_to_score {
-            heap.push((Reverse(score), doc));
-            if heap.len() > top_k {
-                heap.pop();
-            }
-        }
+        //            let mut doc = postings.doc();
+        //            while doc != TERMINATED {
+        //                *tantivy_doc_to_score
+        //                    .entry(DocAddress {
+        //                        segment_ord: seg_ord as u32,
+        //                        doc_id: doc,
+        //                    })
+        //                    .or_default() += postings.term_freq();
+        //                doc = postings.advance();
+        //            }
+        //        }
+        //    }
+        //}
+        //let mut heap = BinaryHeap::with_capacity(top_k + 1);
+        //for (doc, score) in tantivy_doc_to_score {
+        //    heap.push((Reverse(score), doc));
+        //    if heap.len() > top_k {
+        //        heap.pop();
+        //    }
+        //}
 
         //let mut clauses = Vec::with_capacity(pairs.len());
         //for t in pairs {
@@ -167,28 +208,8 @@ impl InvertedIndex {
         //        .unwrap();
         //    results.push((doc_id, score as f64));
         //}
-        let mut results = Vec::with_capacity(heap.len());
-        for (Reverse(score), doc_addr) in heap {
-            let retrieved_doc: TantivyDocument = searcher.doc(doc_addr)?;
-            let doc_id: u64 = retrieved_doc
-                .get_first(self.doc_id)
-                .unwrap()
-                .as_u64()
-                .unwrap();
-            results.push((doc_id, score as f64));
-        }
-        Ok(results)
-        //let mut clauses = Vec::with_capacity(pairs.len());
-        //for &tok in pairs {
-        //    let term = Term::from_field_text(self.token_cluster_id, tok);
-        //    clauses.push(Box::new(TfTermQuery::new(term)) as Box<dyn Query>);
-        //}
-        //let bool_q = BooleanQuery::union(clauses);
-
-        //let hits = searcher.search(&bool_q, &tantivy::collector::TopDocs::with_limit(top_k))?;
-
-        //let mut results = Vec::with_capacity(hits.len());
-        //for (score, doc_addr) in hits {
+        //let mut results = Vec::with_capacity(heap.len());
+        //for (Reverse(score), doc_addr) in heap {
         //    let retrieved_doc: TantivyDocument = searcher.doc(doc_addr)?;
         //    let doc_id: u64 = retrieved_doc
         //        .get_first(self.doc_id)
@@ -198,6 +219,26 @@ impl InvertedIndex {
         //    results.push((doc_id, score as f64));
         //}
         //Ok(results)
+        let mut clauses = Vec::with_capacity(pairs.len());
+        for &tok in pairs {
+            let term = Term::from_field_text(self.token_cluster_id, tok);
+            clauses.push(Box::new(TfTermQuery::new(term)) as Box<dyn Query>);
+        }
+        let bool_q = BooleanQuery::union(clauses);
+
+        let hits = searcher.search(&bool_q, &tantivy::collector::TopDocs::with_limit(top_k))?;
+
+        let mut results = Vec::with_capacity(hits.len());
+        for (score, doc_addr) in hits {
+            let retrieved_doc: TantivyDocument = searcher.doc(doc_addr)?;
+            let doc_id: u64 = retrieved_doc
+                .get_first(self.doc_id)
+                .unwrap()
+                .as_u64()
+                .unwrap();
+            results.push((doc_id, score as f64));
+        }
+        Ok(results)
     }
 }
 

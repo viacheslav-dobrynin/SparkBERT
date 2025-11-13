@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use faiss::{read_index, Index};
@@ -43,6 +43,7 @@ fn bench_vector_search(c: &mut Criterion) {
 
     // Setup benchmark
     let mut group = c.benchmark_group("Vector Search");
+    group.warm_up_time(Duration::from_secs(10));
     for query in &queries {
         let query_embs = calc_embs(vec![query], true).unwrap();
         let flat_embs = query_embs.flatten_all().unwrap().to_vec1::<f32>().unwrap();
