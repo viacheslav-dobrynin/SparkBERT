@@ -1,25 +1,17 @@
-use std::{
-    cmp::Reverse,
-    collections::{BinaryHeap, HashMap},
-};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use float8::F8E4M3;
-use rayon::{
-    iter::{IntoParallelRefIterator, ParallelIterator},
-    slice::ParallelSlice,
-};
 use tantivy::{
-    collector::TopDocs,
     directory::RamDirectory,
-    postings::{self, Postings, SegmentPostings},
-    query::{BooleanQuery, Query, QueryClone, Scorer, TermQuery, Weight},
+    query::{BooleanQuery, Query},
     schema::{
         Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, STORED,
     },
-    DocAddress, DocSet, HasLen, Index, IndexReader, ReloadPolicy, Score, Searcher,
-    SingleSegmentIndexWriter, TantivyDocument, Term, TERMINATED,
+    Index, IndexReader, ReloadPolicy, Searcher, SingleSegmentIndexWriter, TantivyDocument, Term,
 };
+
+use crate::tf_term_query::TfTermQuery;
 
 pub struct InvertedIndex {
     index: Option<Index>,
@@ -28,7 +20,7 @@ pub struct InvertedIndex {
     token_cluster_id: Field,
     doc_id: Field,
 
-    pending: HashMap<u64, tantivy::TantivyDocument>,
+    pending: HashMap<u64, TantivyDocument>,
 }
 
 impl InvertedIndex {

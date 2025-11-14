@@ -1,5 +1,6 @@
 use tantivy::postings::{Postings, SegmentPostings};
-use tantivy::query::{EmptyScorer, Query, Scorer, Weight};
+use tantivy::query::{EmptyScorer, EnableScoring, Explanation, Query, Scorer, Weight};
+use tantivy::schema::IndexRecordOption;
 use tantivy::{DocId, DocSet, Score, SegmentReader, Term};
 
 // TF Scorer
@@ -47,30 +48,20 @@ impl Weight for TfWeight {
     fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
         let inv = reader.inverted_index(self.term.field())?;
         if let Some(info) = inv.get_term_info(&self.term)? {
-            let postings = inv.read_postings_from_terminfo(
-                &info,
-                tantivy::schema::IndexRecordOption::WithFreqs,
-            )?;
+            let postings = inv.read_postings_from_terminfo(&info, IndexRecordOption::WithFreqs)?;
             Ok(Box::new(TfScorer { postings }))
         } else {
             Ok(Box::new(EmptyScorer))
         }
     }
 
-    fn explain(
-        &self,
-        reader: &tantivy::SegmentReader,
-        doc: tantivy::DocId,
-    ) -> tantivy::Result<tantivy::query::Explanation> {
+    fn explain(&self, reader: &SegmentReader, doc: DocId) -> tantivy::Result<Explanation> {
         unimplemented!()
     }
 }
 
 impl Query for TfTermQuery {
-    fn weight(
-        &self,
-        enable_scoring: tantivy::query::EnableScoring<'_>,
-    ) -> tantivy::Result<Box<dyn tantivy::query::Weight>> {
+    fn weight(&self, enable_scoring: EnableScoring<'_>) -> tantivy::Result<Box<dyn Weight>> {
         let weight = TfWeight {
             term: self.term.clone(),
         };
