@@ -5,5 +5,6 @@ pub mod inverted_index;
 pub mod postings;
 pub mod run;
 pub mod score;
+pub mod tf_term_query;
 pub mod util;
 pub mod vector_index;
