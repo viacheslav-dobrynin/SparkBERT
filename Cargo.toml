@@ -1,5 +1,5 @@
 [package]
-name = "spar-k-bert"
+name = "spark-bert"
 version = "0.1.0"
 edition = "2021"
 
@@ -28,6 +28,7 @@ tokio = "1.44.2"
 redis = "*"
 rkyv = "*"
 indicatif = "*"
+float8 = "*"
 
 [dev-dependencies]
 criterion = { version = "*", features = ["html_reports"] }

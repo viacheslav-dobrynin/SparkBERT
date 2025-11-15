@@ -5,6 +5,7 @@ mod inverted_index;
 mod postings;
 mod run;
 mod score;
+mod tf_term_query;
 mod util;
 mod vector_index;
 use anyhow::Result;
