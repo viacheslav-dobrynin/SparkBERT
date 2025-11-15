@@ -17,7 +17,8 @@ jobs:
       - name: Install system dependencies for Faiss
         run: |
           sudo apt-get update
-          sudo apt-get install -y intel-mkl libomp-dev
+          # https://github.com/facebookresearch/faiss/blob/main/INSTALL.md#building-from-source
+          sudo apt-get install -y intel-mkl
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
