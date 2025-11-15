@@ -2,8 +2,6 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use candle_core::Device;
-use faiss::index::IndexImpl;
-use faiss::Index;
 use qdrant_client::qdrant::vectors_output::VectorsOptions;
 use qdrant_client::qdrant::Condition;
 use qdrant_client::qdrant::Filter;
@@ -14,6 +12,7 @@ use redis::Connection;
 use rkyv::{rancor::Error, Archive, Deserialize, Serialize};
 
 use crate::dataset::CorpusDoc;
+use crate::faiss::{self, index::IndexImpl, Index};
 use crate::score::calculate_max_sim;
 use crate::util::get_progress_bar;
 use crate::vector_index::reconstruct_batch;

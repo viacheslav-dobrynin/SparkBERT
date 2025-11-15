@@ -1,6 +1,7 @@
 mod args;
 mod dataset;
 mod embs;
+mod faiss;
 mod inverted_index;
 mod postings;
 mod run;

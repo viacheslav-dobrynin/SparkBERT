@@ -5,10 +5,10 @@ use std::{
 
 use anyhow::{Ok, Result};
 use candle_core::D;
-use faiss::Index;
 use redis::{Commands, Connection};
 
 use crate::{embs::calc_embs, inverted_index::InvertedIndex, postings::ArchivedPosting};
+use crate::faiss::{self, Index};
 
 const MAX_DF_RATIO: f64 = 0.15;
 

@@ -1,9 +1,9 @@
 use std::{collections::HashMap, time::Duration};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use faiss::{read_index, Index};
 use spark_bert::{
     embs::calc_embs,
+    faiss::{self, read_index, Index},
     run::{find_tokens, load_inverted_index},
     vector_index::load_faiss_idx_to_token,
 };

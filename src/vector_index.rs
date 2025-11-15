@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 
-use faiss::Index;
+use crate::faiss::{self, Index};
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::slice::ParallelSliceMut;
 
@@ -34,8 +34,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use faiss::error::Result as FaissResult;
-    use faiss::{Idx, MetricType};
+    use crate::faiss::{self, error::Result as FaissResult, Idx};
 
     #[test]
     fn should_reconstruct_batch_of_embs() {
@@ -58,89 +57,17 @@ mod tests {
             self.vecs[0].len() as u32
         }
 
+        fn ntotal(&self) -> u64 {
+            self.vecs.len() as u64
+        }
+
+        fn search(&mut self, _q: &[f32], _k: usize) -> FaissResult<faiss::index::SearchResult> {
+            unimplemented!()
+        }
+
         fn reconstruct(&self, idx: Idx, dest: &mut [f32]) -> FaissResult<()> {
             dest.copy_from_slice(&self.vecs[idx.get().unwrap() as usize]);
             Ok(())
-        }
-
-        fn is_trained(&self) -> bool {
-            todo!()
-        }
-
-        fn ntotal(&self) -> u64 {
-            todo!()
-        }
-
-        fn metric_type(&self) -> MetricType {
-            todo!()
-        }
-
-        fn add(&mut self, x: &[f32]) -> FaissResult<()> {
-            let _ = x;
-            todo!()
-        }
-
-        fn add_with_ids(&mut self, x: &[f32], xids: &[Idx]) -> FaissResult<()> {
-            let _ = xids;
-            let _ = x;
-            todo!()
-        }
-
-        fn train(&mut self, x: &[f32]) -> FaissResult<()> {
-            let _ = x;
-            todo!()
-        }
-
-        fn assign(&mut self, q: &[f32], k: usize) -> FaissResult<faiss::index::AssignSearchResult> {
-            let _ = k;
-            let _ = q;
-            todo!()
-        }
-
-        fn search(&mut self, q: &[f32], k: usize) -> FaissResult<faiss::index::SearchResult> {
-            let _ = k;
-            let _ = q;
-            todo!()
-        }
-
-        fn range_search(
-            &mut self,
-            q: &[f32],
-            radius: f32,
-        ) -> FaissResult<faiss::index::RangeSearchResult> {
-            let _ = radius;
-            let _ = q;
-            todo!()
-        }
-
-        fn reconstruct_n(
-            &self,
-            first_key: Idx,
-            count: usize,
-            output: &mut [f32],
-        ) -> FaissResult<()> {
-            let _ = output;
-            let _ = count;
-            let _ = first_key;
-            todo!()
-        }
-
-        fn reset(&mut self) -> FaissResult<()> {
-            todo!()
-        }
-
-        fn remove_ids(&mut self, sel: &faiss::selector::IdSelector) -> FaissResult<usize> {
-            let _ = sel;
-            todo!()
-        }
-
-        fn verbose(&self) -> bool {
-            todo!()
-        }
-
-        fn set_verbose(&mut self, value: bool) {
-            let _ = value;
-            todo!()
         }
     }
 }
