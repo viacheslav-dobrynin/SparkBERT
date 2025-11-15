@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies for Faiss
+        run: |
+          sudo apt-get update
+          # https://github.com/facebookresearch/faiss/blob/main/INSTALL.md#building-from-source
+          sudo apt-get install -y intel-mkl
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build project
+        run: cargo build
+
+      - name: Run tests
+        run: cargo test
