@@ -83,3 +83,7 @@ pub fn calc_embs(sentences: Vec<&str>, apply_pooling: bool) -> Result<Tensor> {
 pub fn normalize_l2(v: &Tensor) -> Result<Tensor> {
     Ok(v.broadcast_div(&v.sqr()?.sum_keepdim(1)?.sqrt()?)?)
 }
+
+pub fn convert_to_flatten_vec(embs: &Tensor) -> Result<Vec<f32>> {
+    Ok(embs.flatten_all()?.to_vec1::<f32>()?)
+}

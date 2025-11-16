@@ -8,7 +8,10 @@ use candle_core::D;
 use faiss::Index;
 use redis::{Commands, Connection};
 
-use crate::{embs::calc_embs, inverted_index::InvertedIndex, postings::ArchivedPosting};
+use crate::{
+    embs::{calc_embs, convert_to_flatten_vec},
+    inverted_index::InvertedIndex,
+};
 
 const MAX_DF_RATIO: f64 = 0.15;
 
@@ -64,7 +67,7 @@ where
     T: Index + Sync,
 {
     let query_embs = calc_embs(vec![query], false)?;
-    let flat_embs = query_embs.flatten_all()?.to_vec1::<f32>()?;
+    let flat_embs = convert_to_flatten_vec(&query_embs)?;
     let faiss::index::SearchResult {
         distances: _,
         labels,

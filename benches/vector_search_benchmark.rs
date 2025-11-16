@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use faiss::{read_index, Index};
 use spark_bert::{
-    embs::calc_embs,
+    embs::{calc_embs, convert_to_flatten_vec},
     run::{find_tokens, load_inverted_index},
     vector_index::load_faiss_idx_to_token,
 };
@@ -46,7 +46,7 @@ fn bench_vector_search(c: &mut Criterion) {
     group.warm_up_time(Duration::from_secs(10));
     for query in &queries {
         let query_embs = calc_embs(vec![query], true).unwrap();
-        let flat_embs = query_embs.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        let flat_embs = convert_to_flatten_vec(&query_embs).unwrap();
 
         let tokens = find_tokens(
             &mut vector_dictionary,
