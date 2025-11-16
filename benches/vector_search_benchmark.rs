@@ -4,7 +4,8 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use faiss::{read_index, Index};
 use spark_bert::{
     embs::{calc_embs, convert_to_flatten_vec},
-    run::{find_tokens, load_inverted_index},
+    inverted_index::InvertedIndex,
+    run::find_tokens,
     vector_index::load_faiss_idx_to_token,
 };
 
@@ -30,11 +31,7 @@ fn bench_vector_search(c: &mut Criterion) {
         load_faiss_idx_to_token("/home/slava/Developer/SparKBERT/faiss_idx_to_token.json").unwrap();
     println!("Vector dictionary size: {}", vector_dictionary.ntotal());
     let search_n_neighbors = 3;
-    let mut redis = redis::Client::open("redis://cache.home:16379")
-        .unwrap()
-        .get_connection()
-        .unwrap();
-    let mut inverted_index = load_inverted_index(&mut redis).unwrap();
+    let inverted_index = InvertedIndex::open_with_copy_from_disk_to_ram_directory().unwrap();
     println!(
         "Inverted index size: {}",
         inverted_index.get_num_docs().unwrap()

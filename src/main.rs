@@ -1,5 +1,6 @@
 mod args;
 mod dataset;
+mod directory;
 mod embs;
 mod indexing;
 mod inverted_index;
@@ -13,6 +14,7 @@ use dataset::load_scifact;
 use faiss::read_index;
 use faiss::Index;
 use indexing::build_inverted_index;
+use inverted_index::InvertedIndex;
 use run::find_tokens;
 use std::collections::HashMap;
 use std::fs::File;
@@ -32,6 +34,7 @@ async fn main() -> Result<()> {
     let search_n_neighbors = 3;
     let search_top_k = 1000;
     let (corpus, queries, _qrels) = load_scifact("test")?;
+    // let inverted_index = InvertedIndex::open_with_copy_from_disk_to_ram_directory()?;
     let inverted_index = build_inverted_index(
         &corpus,
         &mut vector_vocabulary,

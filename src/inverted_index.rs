@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fs, path::PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use float8::F8E4M3;
 use tantivy::{
-    directory::RamDirectory,
+    directory::{Directory, MmapDirectory},
     query::{BooleanQuery, Query},
     schema::{
         Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, STORED,
@@ -11,7 +11,7 @@ use tantivy::{
     Index, IndexReader, ReloadPolicy, Searcher, SingleSegmentIndexWriter, TantivyDocument, Term,
 };
 
-use crate::tf_term_query::TfTermQuery;
+use crate::{directory::ram_directory_from_mmap_dir, tf_term_query::TfTermQuery};
 
 pub struct InvertedIndex {
     index: Option<Index>,
@@ -25,21 +25,14 @@ pub struct InvertedIndex {
 
 impl InvertedIndex {
     pub fn open() -> Result<Self> {
-        let mut schema_builder = Schema::builder();
-        let tok_opts = TextOptions::default().set_indexing_options(
-            TextFieldIndexing::default()
-                .set_tokenizer("raw")
-                .set_index_option(IndexRecordOption::WithFreqs),
-        );
-        let token_cluster_id = schema_builder.add_text_field("token", tok_opts);
-        let doc_id = schema_builder.add_u64_field("doc_id", FAST | STORED);
-        let schema = schema_builder.build();
-
+        let directory_path = Self::default_directory_path();
+        fs::create_dir_all(&directory_path)?;
+        let directory = MmapDirectory::open(&directory_path)?;
+        let (schema, token_cluster_id, doc_id) = Self::build_schema()?;
         let writer = Index::builder()
             .schema(schema)
-            .single_segment_index_writer(RamDirectory::create(), 500_000_000)?; // 500 MB heap
+            .single_segment_index_writer(directory, 500_000_000)?; // 500 MB heap
         let writer = Some(writer);
-
         Ok(Self {
             index: None,
             writer,
@@ -50,7 +43,46 @@ impl InvertedIndex {
         })
     }
 
+    pub fn open_with_copy_from_disk_to_ram_directory() -> Result<Self> {
+        let ram_directory = ram_directory_from_mmap_dir(Self::default_directory_path())?;
+        let ram_index = Index::open(ram_directory)?;
+        let (_, token_cluster_id, doc_id) = Self::build_schema()?;
+        let reader = ram_index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        Ok(Self {
+            index: Some(ram_index),
+            writer: None,
+            reader: Some(reader),
+            token_cluster_id,
+            doc_id,
+            pending: HashMap::new(),
+        })
+    }
+
+    fn default_directory_path() -> PathBuf {
+        std::env::var_os("SPARKBERT_INVERTED_INDEX_DIR")
+            .map(PathBuf::from)
+            .context("Please set SPARKBERT_INVERTED_INDEX_DIR env variable")
+            .unwrap()
+    }
+
+    fn build_schema() -> Result<(Schema, Field, Field)> {
+        let mut schema_builder = Schema::builder();
+        let tok_opts = TextOptions::default().set_indexing_options(
+            TextFieldIndexing::default()
+                .set_tokenizer("raw")
+                .set_index_option(IndexRecordOption::WithFreqs),
+        );
+        let token_cluster_id = schema_builder.add_text_field("token", tok_opts);
+        let doc_id = schema_builder.add_u64_field("doc_id", FAST | STORED);
+        let schema = schema_builder.build();
+        Ok((schema, token_cluster_id, doc_id))
+    }
+
     pub fn add_pair(&mut self, token_cluster_id: &str, doc_id: u64, score: f32) -> Result<()> {
+        // TODO: add boundaries and try without f8
         let reps = F8E4M3::from_f32(score).to_bits();
         if reps == 0 {
             return Ok(());
@@ -86,7 +118,7 @@ impl InvertedIndex {
         Ok(())
     }
 
-    pub fn get_num_docs(&mut self) -> Result<u64> {
+    pub fn get_num_docs(&self) -> Result<u64> {
         let reader = self.reader.as_ref().unwrap();
         let searcher = reader.searcher();
         Ok(searcher.num_docs())
