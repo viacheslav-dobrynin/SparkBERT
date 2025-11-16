@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs, path::PathBuf};
 use anyhow::{Context, Result};
 use float8::F8E4M3;
 use tantivy::{
-    directory::{Directory, MmapDirectory},
+    directory::MmapDirectory,
     query::{BooleanQuery, Query},
     schema::{
         Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, STORED,
@@ -81,7 +81,14 @@ impl InvertedIndex {
         Ok((schema, token_cluster_id, doc_id))
     }
 
-    pub fn add_pair(&mut self, token_cluster_id: &str, doc_id: u64, score: f32) -> Result<()> {
+    pub fn index(&mut self, doc_id: u64, tokens: Vec<&String>, scores: Vec<f32>) -> Result<()> {
+        for (&token, &score) in tokens.iter().zip(scores.iter()) {
+            self.add_pair(doc_id, token, score)?;
+        }
+        Ok(())
+    }
+
+    fn add_pair(&mut self, doc_id: u64, token_cluster_id: &str, score: f32) -> Result<()> {
         // TODO: add boundaries and try without f8
         let reps = F8E4M3::from_f32(score).to_bits();
         if reps == 0 {

@@ -48,9 +48,7 @@ where
         let token_embs = reconstruct_batch(vector_vocabulary, &labels)?;
         let scores = calculate_max_sim(doc_embs, token_embs, device, d)?;
         debug_assert!(tokens.len() == scores.len());
-        for (&token, &score) in tokens.iter().zip(scores.iter()) {
-            inverted_index.add_pair(token, doc_id, score)?;
-        }
+        inverted_index.index(doc_id, tokens, scores);
     }
     inverted_index.finalize()?;
     dbg!(inverted_index_building_start.elapsed());
