@@ -16,7 +16,7 @@ use rkyv::{rancor::Error, Archive, Deserialize, Serialize};
 use crate::dataset::CorpusDoc;
 use crate::score::calculate_max_sim;
 use crate::util::get_progress_bar;
-use crate::vector_index::reconstruct_batch;
+use crate::vector_index::{reconstruct_batch, unique_labels};
 
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq)]
 #[rkyv(
@@ -88,6 +88,7 @@ pub async fn build_postings(
             distances: _,
             labels,
         } = index.search(&doc_embs, index_n_neighbors)?;
+        let labels = unique_labels(&labels);
         let token_embs = reconstruct_batch(index, &labels)?;
         let tokens: Vec<&String> = labels
             .iter()

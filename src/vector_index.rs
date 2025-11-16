@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 
-use faiss::Index;
+use faiss::{Idx, Index};
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::slice::ParallelSliceMut;
 
@@ -31,6 +31,13 @@ where
     anyhow::Ok(flat_embs)
 }
 
+pub fn unique_labels(labels: &[Idx]) -> Vec<Idx> {
+    let mut unique_ids: Vec<u64> = labels.iter().filter_map(|idx| idx.get()).collect();
+    unique_ids.sort_unstable();
+    unique_ids.dedup();
+    unique_ids.into_iter().map(Idx::new).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -47,6 +54,21 @@ mod tests {
         let embs = reconstruct_batch(&mock, &labels).unwrap();
 
         assert_eq!(embs, vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn should_return_unique_labels() {
+        let labels = [
+            Idx::new(2),
+            Idx::new(1),
+            Idx::new(2),
+            Idx::new(3),
+            Idx::new(1),
+        ];
+
+        let uniques = unique_labels(&labels);
+
+        assert_eq!(uniques, vec![Idx::new(1), Idx::new(2), Idx::new(3)]);
     }
 
     struct MockIndex {

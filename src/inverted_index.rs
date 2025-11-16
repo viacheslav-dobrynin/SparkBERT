@@ -96,7 +96,7 @@ impl InvertedIndex {
     /// execute a query that is a list of `(token#cluster)` strings
     /// returns `Vec<(doc_id, sum_score)>` sorted desc by sum_score
     pub fn search(
-        &mut self,
+        &self,
         searcher: Option<&Searcher>,
         pairs: &[&str],
         top_k: usize,

@@ -1,6 +1,7 @@
 pub mod args;
 pub mod dataset;
 pub mod embs;
+pub mod indexing;
 pub mod inverted_index;
 pub mod postings;
 pub mod run;
