@@ -30,7 +30,6 @@ async fn main() -> Result<()> {
         load_faiss_idx_to_token("/home/slava/Developer/SparKBERT/faiss_idx_to_token.json")?;
     let mut vector_index = read_index("/home/slava/Developer/SparKBERT/hnsw.index")?;
     println!("Vector dictionary size: {}", vector_index.ntotal());
-    let d = vector_index.d() as usize;
     let device = device(false)?;
     let index_n_neighbors = 8;
     let search_n_neighbors = 3;
@@ -43,7 +42,6 @@ async fn main() -> Result<()> {
             &faiss_idx_to_token,
             index_n_neighbors,
             &mut redis,
-            d,
             &device,
         )
         .await?;

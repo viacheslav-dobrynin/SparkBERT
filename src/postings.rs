@@ -77,11 +77,11 @@ pub async fn build_postings(
     faiss_idx_to_token: &HashMap<String, String>,
     index_n_neighbors: usize,
     redis: &mut Connection,
-    d: usize,
     device: &Device,
 ) -> Result<()> {
     let qdrant = Qdrant::from_url("http://vectordb.home:6334").build()?;
     let pb = get_progress_bar(corpus.len() as u64)?;
+    let d = index.d() as usize;
     for (doc_id, _doc) in pb.wrap_iter(corpus.iter()) {
         let doc_embs = load_embs_for_doc_id(&qdrant, d, doc_id).await?;
         let faiss::index::SearchResult {
