@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::PathBuf,
+};
 
 use anyhow::{Context, Result};
 use float8::F8E4M3;
@@ -13,14 +17,15 @@ use tantivy::{
 
 use crate::{directory::ram_directory_from_mmap_dir, tf_term_query::TfTermQuery};
 
+const MAX_DF_RATIO: f32 = 0.15;
+
 pub struct InvertedIndex {
     index: Option<Index>,
     writer: Option<SingleSegmentIndexWriter>,
     pub reader: Option<IndexReader>,
     token_cluster_id: Field,
     doc_id: Field,
-
-    pending: HashMap<u64, TantivyDocument>,
+    pending: HashMap<u64, Vec<(String, f32)>>,
 }
 
 impl InvertedIndex {
@@ -81,37 +86,46 @@ impl InvertedIndex {
         Ok((schema, token_cluster_id, doc_id))
     }
 
-    pub fn index(&mut self, doc_id: u64, tokens: Vec<&String>, scores: Vec<f32>) -> Result<()> {
-        for (&token, &score) in tokens.iter().zip(scores.iter()) {
-            self.add_pair(doc_id, token, score)?;
+    pub fn index(&mut self, doc_id: u64, tokens: Vec<String>, scores: Vec<f32>) {
+        debug_assert_eq!(tokens.len(), scores.len());
+        let doc_entry = self.pending.entry(doc_id).or_default();
+        for (token, score) in tokens.into_iter().zip(scores.into_iter()) {
+            doc_entry.push((token, score));
         }
-        Ok(())
-    }
-
-    fn add_pair(&mut self, doc_id: u64, token_cluster_id: &str, score: f32) -> Result<()> {
-        // TODO: add boundaries and try without f8
-        let reps = F8E4M3::from_f32(score).to_bits();
-        if reps == 0 {
-            return Ok(());
-        }
-
-        let doc_entry = self.pending.entry(doc_id).or_insert_with(|| {
-            let mut d = tantivy::TantivyDocument::new();
-            d.add_u64(self.doc_id, doc_id);
-            d
-        });
-
-        for _ in 0..reps {
-            doc_entry.add_text(self.token_cluster_id, token_cluster_id);
-        }
-        Ok(())
     }
 
     /// commit
     pub fn finalize(&mut self) -> Result<()> {
         let mut writer = self.writer.take().unwrap();
-        for doc in self.pending.values() {
-            writer.add_document(doc.clone())?;
+        let stop_words = self.prepare_stop_words();
+        for (&doc_id, token_score_pairs) in self.pending.iter() {
+            let mut doc = TantivyDocument::new();
+            doc.add_u64(self.doc_id, doc_id);
+            let mut set = false;
+            for (token, score) in token_score_pairs {
+                if stop_words.contains(token) {
+                    continue;
+                }
+                // TODO: remove magic number, use stats
+                if *score < 22.7136 {
+                    continue;
+                }
+                // TODO: add boundaries and try without f8
+                let reps = F8E4M3::from_f32(*score).to_bits();
+                if reps == 0 {
+                    continue;
+                }
+                set = true;
+                // set score as tf
+                for _ in 0..reps {
+                    doc.add_text(self.token_cluster_id, token);
+                }
+            }
+            if set {
+                writer.add_document(doc)?;
+            } else {
+                panic!("adjust hyperparams, no tokens were added to doc")
+            }
         }
         self.pending.clear();
         println!("Inverted index memory usage: {}", &writer.mem_usage());
@@ -123,6 +137,24 @@ impl InvertedIndex {
         self.index = Some(index);
         self.reader = Some(reader);
         Ok(())
+    }
+
+    fn prepare_stop_words(&self) -> HashSet<&String> {
+        let mut token_to_doc_count = HashMap::new();
+        for (_, token_score_pairs) in self.pending.iter() {
+            let mut seen = HashSet::new();
+            for (token, _) in token_score_pairs {
+                if seen.insert(token) {
+                    *token_to_doc_count.entry(token).or_insert(0) += 1;
+                }
+            }
+        }
+        let total_docs = self.pending.len() as f32;
+        token_to_doc_count
+            .into_iter()
+            .filter(|(_, doc_count)| (*doc_count as f32 / total_docs) >= MAX_DF_RATIO)
+            .map(|(token, _)| token)
+            .collect()
     }
 
     pub fn get_num_docs(&self) -> Result<u64> {

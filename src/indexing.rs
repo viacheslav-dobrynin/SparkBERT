@@ -38,16 +38,15 @@ where
             labels,
         } = vector_vocabulary.search(&doc_embs, index_n_neighbors)?;
         let labels = unique_labels(&labels);
-        let tokens: Vec<&String> = labels
+        let tokens: Vec<String> = labels
             .iter()
             .map(|idx| {
                 let idx = idx.get().unwrap().to_string();
-                faiss_idx_to_token.get(&idx).unwrap()
+                faiss_idx_to_token.get(&idx).unwrap().to_owned()
             })
             .collect();
         let token_embs = reconstruct_batch(vector_vocabulary, &labels)?;
         let scores = calculate_max_sim(doc_embs, token_embs, device, d)?;
-        debug_assert!(tokens.len() == scores.len());
         inverted_index.index(doc_id, tokens, scores);
     }
     inverted_index.finalize()?;
