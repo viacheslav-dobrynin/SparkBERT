@@ -5,7 +5,7 @@ use faiss::{read_index, Index};
 use spark_bert::{
     embs::{calc_embs, convert_to_flatten_vec},
     inverted_index::InvertedIndex,
-    run::find_tokens,
+    vector_index::find_tokens,
     vector_index::load_faiss_idx_to_token,
 };
 

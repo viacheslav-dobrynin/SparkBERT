@@ -4,7 +4,6 @@ mod directory;
 mod embs;
 mod indexing;
 mod inverted_index;
-mod run;
 mod score;
 mod tf_term_query;
 mod util;
@@ -15,12 +14,12 @@ use faiss::read_index;
 use faiss::Index;
 use indexing::build_inverted_index;
 use inverted_index::InvertedIndex;
-use run::find_tokens;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use util::device;
 use util::get_progress_bar;
+use vector_index::find_tokens;
 use vector_index::load_faiss_idx_to_token;
 
 #[tokio::main]

@@ -4,7 +4,6 @@ pub mod directory;
 pub mod embs;
 pub mod indexing;
 pub mod inverted_index;
-pub mod run;
 pub mod score;
 pub mod tf_term_query;
 pub mod util;
