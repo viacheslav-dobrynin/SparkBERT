@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 
-use faiss::Index;
+use crate::embs::{calc_embs, convert_to_flatten_vec};
+use anyhow::Result;
+use candle_core::D;
+use faiss::{Idx, Index};
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::slice::ParallelSliceMut;
 
@@ -31,6 +34,40 @@ where
     anyhow::Ok(flat_embs)
 }
 
+pub fn unique_labels(labels: &[Idx]) -> Vec<Idx> {
+    let mut unique_ids: Vec<u64> = labels.iter().filter_map(|idx| idx.get()).collect();
+    unique_ids.sort_unstable();
+    unique_ids.dedup();
+    unique_ids.into_iter().map(Idx::new).collect()
+}
+
+// TODO: merge with fn from indexing.rs to avoid code duplicates
+pub fn find_tokens<'a, T>(
+    vector_index: &mut T,
+    search_n_neighbors: &usize,
+    faiss_idx_to_token: &'a HashMap<String, String>,
+    query: &str,
+) -> Result<Vec<&'a str>>
+where
+    T: Index + Sync,
+{
+    let query_embs = calc_embs(vec![query], false)?;
+    let flat_embs = convert_to_flatten_vec(&query_embs)?;
+    let faiss::index::SearchResult {
+        distances: _,
+        labels,
+    } = vector_index.search(&flat_embs, *search_n_neighbors)?;
+    let labels = unique_labels(&labels);
+    let tokens: Vec<&str> = labels
+        .iter()
+        .map(|idx| {
+            let idx = idx.get().unwrap().to_string();
+            faiss_idx_to_token.get(&idx).map(String::as_str).unwrap()
+        })
+        .collect();
+    Ok(tokens)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -47,6 +84,21 @@ mod tests {
         let embs = reconstruct_batch(&mock, &labels).unwrap();
 
         assert_eq!(embs, vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn should_return_unique_labels() {
+        let labels = [
+            Idx::new(2),
+            Idx::new(1),
+            Idx::new(2),
+            Idx::new(3),
+            Idx::new(1),
+        ];
+
+        let uniques = unique_labels(&labels);
+
+        assert_eq!(uniques, vec![Idx::new(1), Idx::new(2), Idx::new(3)]);
     }
 
     struct MockIndex {

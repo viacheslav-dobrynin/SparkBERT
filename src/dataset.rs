@@ -14,6 +14,24 @@ pub struct CorpusDoc {
     #[serde(flatten)]
     pub meta: HashMap<String, serde_json::Value>,
 }
+
+impl CorpusDoc {
+    pub fn as_text(&self) -> String {
+        let sep = " ";
+        let title = self.title.as_deref().unwrap_or("");
+        let mut combined = String::with_capacity(title.len() + sep.len() + self.text.len());
+        combined.push_str(title);
+        combined.push_str(sep);
+        combined.push_str(&self.text);
+        let trimmed = combined.trim();
+        if trimmed.len() == combined.len() {
+            combined
+        } else {
+            trimmed.to_owned()
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Query {
     pub text: String,
@@ -81,4 +99,29 @@ pub fn load_scifact(split: &str) -> Result<(Corpus, Queries, Qrels)> {
     queries.retain(|qid, _| qrels.contains_key(qid));
 
     Ok((corpus, queries, qrels))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_return_as_text_with_title() {
+        let doc = CorpusDoc {
+            title: Some(" Title".to_string()),
+            text: "Body ".to_string(),
+            meta: HashMap::new(),
+        };
+        assert_eq!(doc.as_text(), "Title Body");
+    }
+
+    #[test]
+    fn should_return_as_text_without_title() {
+        let doc = CorpusDoc {
+            title: None,
+            text: " Body ".to_string(),
+            meta: HashMap::new(),
+        };
+        assert_eq!(doc.as_text(), "Body");
+    }
 }

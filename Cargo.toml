@@ -27,10 +27,7 @@ tracing-chrome = "0.7.1"
 tracing-subscriber = "0.3.7"
 rayon = { version = "*" }
 faiss = { version = "*", features = ["static"] }
-qdrant-client = "1.14.0"
 tokio = "1.44.2"
-redis = "*"
-rkyv = "*"
 indicatif = "*"
 float8 = "*"
 

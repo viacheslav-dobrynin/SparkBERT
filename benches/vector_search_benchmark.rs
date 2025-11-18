@@ -3,8 +3,9 @@ use std::{collections::HashMap, time::Duration};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use faiss::{read_index, Index};
 use spark_bert::{
-    embs::calc_embs,
-    run::{find_tokens, load_inverted_index},
+    embs::{calc_embs, convert_to_flatten_vec},
+    inverted_index::InvertedIndex,
+    vector_index::find_tokens,
     vector_index::load_faiss_idx_to_token,
 };
 
@@ -30,11 +31,7 @@ fn bench_vector_search(c: &mut Criterion) {
         load_faiss_idx_to_token("/home/slava/Developer/SparKBERT/faiss_idx_to_token.json").unwrap();
     println!("Vector dictionary size: {}", vector_dictionary.ntotal());
     let search_n_neighbors = 3;
-    let mut redis = redis::Client::open("redis://cache.home:16379")
-        .unwrap()
-        .get_connection()
-        .unwrap();
-    let mut inverted_index = load_inverted_index(&mut redis).unwrap();
+    let inverted_index = InvertedIndex::open_with_copy_from_disk_to_ram_directory().unwrap();
     println!(
         "Inverted index size: {}",
         inverted_index.get_num_docs().unwrap()
@@ -46,7 +43,7 @@ fn bench_vector_search(c: &mut Criterion) {
     group.warm_up_time(Duration::from_secs(10));
     for query in &queries {
         let query_embs = calc_embs(vec![query], true).unwrap();
-        let flat_embs = query_embs.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        let flat_embs = convert_to_flatten_vec(&query_embs).unwrap();
 
         let tokens = find_tokens(
             &mut vector_dictionary,
