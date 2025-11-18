@@ -33,14 +33,17 @@ async fn main() -> Result<()> {
     let search_n_neighbors = 3;
     let search_top_k = 1000;
     let (corpus, queries, _qrels) = load_scifact("test")?;
-    // let inverted_index = InvertedIndex::open_with_copy_from_disk_to_ram_directory()?;
-    let inverted_index = build_inverted_index(
-        &corpus,
-        &mut vector_vocabulary,
-        &faiss_idx_to_token,
-        index_n_neighbors,
-        &device,
-    )?;
+    let mut inverted_index = InvertedIndex::open_with_copy_from_disk_to_ram_directory()?;
+    if inverted_index.get_num_docs()? == 0 {
+        inverted_index = build_inverted_index(
+            &corpus,
+            &mut vector_vocabulary,
+            &faiss_idx_to_token,
+            index_n_neighbors,
+            &device,
+        )?;
+    }
+    println!("Inverted index size: {}", inverted_index.get_num_docs()?);
     let pb = get_progress_bar(queries.len() as u64)?;
     let mut results: HashMap<String, HashMap<String, f64>> = HashMap::new();
     for (query_id, query) in pb.wrap_iter(queries.into_iter()) {

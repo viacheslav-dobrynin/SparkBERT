@@ -41,6 +41,7 @@ pub fn unique_labels(labels: &[Idx]) -> Vec<Idx> {
     unique_ids.into_iter().map(Idx::new).collect()
 }
 
+// TODO: merge with fn from indexing.rs to avoid code duplicates
 pub fn find_tokens<'a, T>(
     vector_index: &mut T,
     search_n_neighbors: &usize,
@@ -56,6 +57,7 @@ where
         distances: _,
         labels,
     } = vector_index.search(&flat_embs, *search_n_neighbors)?;
+    let labels = unique_labels(&labels);
     let tokens: Vec<&str> = labels
         .iter()
         .map(|idx| {
@@ -63,10 +65,6 @@ where
             faiss_idx_to_token.get(&idx).map(String::as_str).unwrap()
         })
         .collect();
-    debug_assert_eq!(
-        labels.len() / search_n_neighbors,
-        query_embs.dim(D::Minus2)?
-    );
     Ok(tokens)
 }
 
