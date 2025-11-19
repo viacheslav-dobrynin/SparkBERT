@@ -7,7 +7,7 @@ mod inverted_index;
 mod score;
 mod tf_term_query;
 mod util;
-mod vector_index;
+mod vector_vocabulary;
 use anyhow::Result;
 use dataset::load_scifact;
 use embs::calc_embs;
@@ -19,7 +19,7 @@ use std::fs::File;
 use std::io::Write;
 use util::device;
 use util::get_progress_bar;
-use vector_index::VectorVocabulary;
+use vector_vocabulary::VectorVocabulary;
 
 #[tokio::main]
 async fn main() -> Result<()> {

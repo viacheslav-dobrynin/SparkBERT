@@ -9,7 +9,7 @@ use crate::{
     inverted_index::InvertedIndex,
     score::calculate_max_sim,
     util::get_progress_bar,
-    vector_index::VectorVocabulary,
+    vector_vocabulary::VectorVocabulary,
 };
 
 pub fn build_inverted_index(

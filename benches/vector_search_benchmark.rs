@@ -5,7 +5,7 @@ use faiss::{read_index, Index};
 use spark_bert::{
     embs::{calc_embs, convert_to_flatten_vec},
     inverted_index::InvertedIndex,
-    vector_index::VectorVocabulary,
+    vector_vocabulary::VectorVocabulary,
 };
 
 fn bench_vector_search(c: &mut Criterion) {
