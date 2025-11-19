@@ -3,17 +3,87 @@ use std::fs::File;
 use std::io::BufReader;
 
 use crate::embs::{calc_embs, convert_to_flatten_vec};
-use anyhow::Result;
-use candle_core::D;
-use faiss::{Idx, Index};
+use anyhow::{anyhow, Result};
+use faiss::index::{IndexImpl, SearchResult};
+use faiss::{read_index, Idx, Index};
+use hf_hub::api::sync::Api;
+use hf_hub::Repo;
 use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 use rayon::slice::ParallelSliceMut;
 
-pub fn load_faiss_idx_to_token(json_path: &str) -> anyhow::Result<HashMap<String, String>> {
-    let file = File::open(json_path)?;
-    let reader = BufReader::new(file);
-    let faiss_idx_to_token: HashMap<String, String> = serde_json::from_reader(reader)?;
-    anyhow::Ok(faiss_idx_to_token)
+pub struct VectorVocabulary {
+    vector_index: IndexImpl,
+    faiss_idx_to_token: HashMap<String, String>,
+}
+
+impl VectorVocabulary {
+    pub fn build() -> Result<Self> {
+        let repo = Repo::model(
+            "viacheslav-dobrynin/spark-bert-msmarco-all-MiniLM-L6-v2-vector-vocab".to_owned(),
+        );
+        let api = Api::new()?.repo(repo);
+        let faiss_idx_to_token_path = api
+            .get("faiss_idx_to_token.json")?
+            .into_os_string()
+            .into_string()
+            .map_err(|path| anyhow!("cache path is not valid UTF-8: {:?}", path))?;
+        let vector_vocab_path = api
+            .get("vector_vocab.hnsw.faiss")?
+            .into_os_string()
+            .into_string()
+            .map_err(|path| anyhow!("cache path is not valid UTF-8: {:?}", path))?;
+        let vector_index = read_index(&vector_vocab_path)?;
+        let faiss_idx_to_token: HashMap<String, String> =
+            Self::load_faiss_idx_to_token(&faiss_idx_to_token_path)?;
+        Ok(Self {
+            vector_index,
+            faiss_idx_to_token,
+        })
+    }
+
+    fn load_faiss_idx_to_token(json_path: &str) -> anyhow::Result<HashMap<String, String>> {
+        let file = File::open(json_path)?;
+        let reader = BufReader::new(file);
+        let faiss_idx_to_token: HashMap<String, String> = serde_json::from_reader(reader)?;
+        anyhow::Ok(faiss_idx_to_token)
+    }
+
+    pub fn get_num_tokens(&self) -> u64 {
+        self.vector_index.ntotal()
+    }
+
+    pub fn get_embedding_dims(&self) -> u32 {
+        self.vector_index.d()
+    }
+
+    pub fn find_tokens(
+        &mut self,
+        query_embs: &[f32],
+        n_neighbors: usize,
+        with_embs: bool,
+    ) -> Result<(Vec<&str>, Option<Vec<f32>>)> {
+        let SearchResult {
+            distances: _,
+            labels,
+        } = self.vector_index.search(&query_embs, n_neighbors)?;
+        let labels = unique_labels(&labels);
+        let tokens: Vec<&str> = labels
+            .iter()
+            .map(|idx| {
+                let idx = idx.get().unwrap().to_string();
+                self.faiss_idx_to_token
+                    .get(&idx)
+                    .map(String::as_str)
+                    .unwrap()
+            })
+            .collect();
+        let token_embs = if with_embs {
+            Some(reconstruct_batch(&self.vector_index, &labels)?)
+        } else {
+            None
+        };
+        Ok((tokens, token_embs))
+    }
 }
 
 pub fn reconstruct_batch<T>(index: &T, labels: &[faiss::Idx]) -> anyhow::Result<Vec<f32>>
@@ -39,33 +109,6 @@ pub fn unique_labels(labels: &[Idx]) -> Vec<Idx> {
     unique_ids.sort_unstable();
     unique_ids.dedup();
     unique_ids.into_iter().map(Idx::new).collect()
-}
-
-// TODO: merge with fn from indexing.rs to avoid code duplicates
-pub fn find_tokens<'a, T>(
-    vector_index: &mut T,
-    search_n_neighbors: &usize,
-    faiss_idx_to_token: &'a HashMap<String, String>,
-    query: &str,
-) -> Result<Vec<&'a str>>
-where
-    T: Index + Sync,
-{
-    let query_embs = calc_embs(vec![query], false)?;
-    let flat_embs = convert_to_flatten_vec(&query_embs)?;
-    let faiss::index::SearchResult {
-        distances: _,
-        labels,
-    } = vector_index.search(&flat_embs, *search_n_neighbors)?;
-    let labels = unique_labels(&labels);
-    let tokens: Vec<&str> = labels
-        .iter()
-        .map(|idx| {
-            let idx = idx.get().unwrap().to_string();
-            faiss_idx_to_token.get(&idx).map(String::as_str).unwrap()
-        })
-        .collect();
-    Ok(tokens)
 }
 
 #[cfg(test)]
