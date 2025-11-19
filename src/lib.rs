@@ -7,4 +7,4 @@ pub mod inverted_index;
 pub mod score;
 pub mod tf_term_query;
 pub mod util;
-pub mod vector_index;
+pub mod vector_vocabulary;

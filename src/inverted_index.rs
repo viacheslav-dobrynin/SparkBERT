@@ -49,9 +49,14 @@ impl InvertedIndex {
     }
 
     pub fn open_with_copy_from_disk_to_ram_directory() -> Result<Self> {
-        let ram_directory = ram_directory_from_mmap_dir(Self::default_directory_path())?;
-        let ram_index = Index::open(ram_directory)?;
-        let (_, token_cluster_id, doc_id) = Self::build_schema()?;
+        let directory_path = Self::default_directory_path();
+        let (schema, token_cluster_id, doc_id) = Self::build_schema()?;
+        let ram_index = if directory_path.exists() {
+            let ram_directory = ram_directory_from_mmap_dir(&directory_path)?;
+            Index::open(ram_directory)?
+        } else {
+            Index::create_in_ram(schema)
+        };
         let reader = ram_index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
