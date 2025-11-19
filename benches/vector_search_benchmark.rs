@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use faiss::{read_index, Index};
@@ -17,8 +17,12 @@ fn bench_vector_search(c: &mut Criterion) {
         "All hematopoietic stem cells segregate their chromosomes randomly.",
     ];
     // Setup HNSW
-    let mut scifact_vector_index =
-        read_index("/home/slava/Developer/SparKBERT/scifact.hnsw.faiss").unwrap();
+    let hnsw_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("data/scifact.hnsw.faiss")
+        .into_os_string()
+        .into_string()
+        .unwrap();
+    let mut scifact_vector_index = read_index(hnsw_path).unwrap();
     println!(
         "Scifact vector index size: {}",
         scifact_vector_index.ntotal()

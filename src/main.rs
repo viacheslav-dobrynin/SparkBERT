@@ -54,7 +54,8 @@ async fn main() -> Result<()> {
         results.insert(query_id, query_results);
     }
     let results_json = serde_json::to_string_pretty(&results)?;
-    let mut results_file = File::create("/home/slava/Developer/SparKBERT/results.json")?;
+    let results_path = std::env::current_dir()?.join("results.json");
+    let mut results_file = File::create(results_path)?;
     results_file.write_all(results_json.as_bytes())?;
     Ok(())
 }

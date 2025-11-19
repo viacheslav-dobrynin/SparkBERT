@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 
-use crate::embs::{calc_embs, convert_to_flatten_vec};
 use anyhow::{anyhow, Result};
 use faiss::index::{IndexImpl, SearchResult};
 use faiss::{read_index, Idx, Index};
@@ -65,7 +64,7 @@ impl VectorVocabulary {
         let SearchResult {
             distances: _,
             labels,
-        } = self.vector_index.search(&query_embs, n_neighbors)?;
+        } = self.vector_index.search(query_embs, n_neighbors)?;
         let labels = unique_labels(&labels);
         let tokens: Vec<&str> = labels
             .iter()
