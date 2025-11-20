@@ -3,9 +3,10 @@ use std::{path::PathBuf, time::Duration};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use faiss::{read_index, Index};
 use spark_bert::{
-    embs::{calc_embs, convert_to_flatten_vec},
-    inverted_index::InvertedIndex,
-    vector_vocabulary::VectorVocabulary,
+    api::{Config, SparkBert},
+    args::Args,
+    embs::{convert_to_flatten_vec, Bert},
+    util::device,
 };
 
 fn bench_vector_search(c: &mut Criterion) {
@@ -16,6 +17,17 @@ fn bench_vector_search(c: &mut Criterion) {
         "Bariatric surgery has a positive impact on mental health.",
         "All hematopoietic stem cells segregate their chromosomes randomly.",
     ];
+    let device = device(false).unwrap();
+    let args = Args {
+        cpu: device.is_cpu(),
+        tracing: false,
+        model_id: Option::None,
+        revision: Option::None,
+        use_pth: false,
+        normalize_embeddings: true,
+        approximate_gelu: false,
+    };
+    let mut bert = Bert::build(args).unwrap();
     // Setup HNSW
     let hnsw_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("data/scifact.hnsw.faiss")
@@ -29,34 +41,29 @@ fn bench_vector_search(c: &mut Criterion) {
     );
 
     // Setup SparKBERT
-    let mut vector_vocabulary = VectorVocabulary::build().unwrap();
-    println!(
-        "Vector vocabulary size: {}",
-        vector_vocabulary.get_num_tokens()
-    );
+    let config = Config {
+        use_ram_index: true,
+        device: device.to_owned(),
+        index_n_neighbors: 8,
+    };
+    let mut spark_bert = SparkBert::new(config).unwrap();
     let search_n_neighbors = 3;
-    let inverted_index = InvertedIndex::open_with_copy_from_disk_to_ram_directory().unwrap();
     println!(
-        "Inverted index size: {}",
-        inverted_index.get_num_docs().unwrap()
+        "SparkBERT index size: {}",
+        spark_bert.get_num_docs().unwrap()
     );
-    let searcher = inverted_index.reader.as_ref().unwrap().searcher();
 
     // Setup benchmark
     let mut group = c.benchmark_group("Vector Search");
     group.warm_up_time(Duration::from_secs(10));
-    for query in &queries {
-        let query_embs = calc_embs(vec![query], true).unwrap();
-        let flat_embs = convert_to_flatten_vec(&query_embs).unwrap();
-        let (tokens, _) = vector_vocabulary
-            .find_tokens(&flat_embs, search_n_neighbors, false)
-            .unwrap();
-        let tokens = tokens.as_slice();
 
+    for query in &queries {
         let bench_name = &query.split_once(" ").unwrap().0;
 
         group.bench_function(format!("HNSW/{}", bench_name), |b| {
             b.iter(|| {
+                let query_embs = bert.calc_embs(vec![black_box(query)], true).unwrap();
+                let flat_embs = convert_to_flatten_vec(black_box(&query_embs)).unwrap();
                 scifact_vector_index
                     .search(black_box(&flat_embs), black_box(search_top_k))
                     .unwrap()
@@ -64,10 +71,10 @@ fn bench_vector_search(c: &mut Criterion) {
         });
         group.bench_function(format!("SparKBERT/{}", bench_name), |b| {
             b.iter(|| {
-                inverted_index
+                spark_bert
                     .search(
-                        black_box(Some(&searcher)),
-                        black_box(tokens),
+                        black_box(query),
+                        black_box(search_n_neighbors),
                         black_box(search_top_k),
                     )
                     .unwrap()
