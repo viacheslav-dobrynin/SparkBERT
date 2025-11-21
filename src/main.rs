@@ -26,12 +26,12 @@ async fn main() -> Result<()> {
     let index_n_neighbors = 8;
     let search_n_neighbors = 3;
     let search_top_k = 1000;
+    let (corpus, queries, _qrels) = load_scifact("test")?;
     let config = Config {
         use_ram_index: false,
         device: device.to_owned(),
         index_n_neighbors,
     };
-    let (corpus, queries, _qrels) = load_scifact("test")?;
     let mut spark_bert = SparkBert::new(config)?;
     if spark_bert.get_num_docs() == 0 {
         spark_bert = build_spark_bert(&corpus, index_n_neighbors, device)?;

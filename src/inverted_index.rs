@@ -35,12 +35,9 @@ impl InvertedIndex {
         let directory = MmapDirectory::open(&directory_path)?;
         let (schema, token_cluster_id, doc_id) = Self::build_schema()?;
         let index = Index::open_or_create(directory, schema)?;
-        let mem_budget = 500_000_000; // 500 MB heap
+        let mem_budget = 500_000_000; // 500 MB heap
         let writer = SingleSegmentIndexWriter::new(index.to_owned(), mem_budget)?;
-        let reader = index
-            .reader_builder()
-            .reload_policy(ReloadPolicy::Manual)
-            .try_into()?;
+        let reader = Self::build_reader(&index)?;
         Ok(Self {
             index,
             writer: Some(writer),
@@ -60,10 +57,7 @@ impl InvertedIndex {
         } else {
             Index::create_in_ram(schema)
         };
-        let reader = ram_index
-            .reader_builder()
-            .reload_policy(ReloadPolicy::Manual)
-            .try_into()?;
+        let reader = Self::build_reader(&ram_index)?;
         Ok(Self {
             index: ram_index,
             writer: None,
@@ -138,10 +132,7 @@ impl InvertedIndex {
         self.pending.clear();
         println!("Inverted index memory usage: {}", &writer.mem_usage());
         let index = writer.finalize()?;
-        let reader = index
-            .reader_builder()
-            .reload_policy(ReloadPolicy::Manual)
-            .try_into()?;
+        let reader = Self::build_reader(&index)?;
         self.index = index;
         self.reader = reader;
         Ok(())
@@ -163,6 +154,14 @@ impl InvertedIndex {
             .filter(|(_, doc_count)| (*doc_count as f32 / total_docs) >= MAX_DF_RATIO)
             .map(|(token, _)| token)
             .collect()
+    }
+
+    fn build_reader(index: &Index) -> Result<IndexReader> {
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        Ok(reader)
     }
 
     pub fn get_num_docs(&self) -> u64 {
