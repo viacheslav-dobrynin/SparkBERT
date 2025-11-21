@@ -27,16 +27,16 @@ async fn main() -> Result<()> {
     let search_n_neighbors = 3;
     let search_top_k = 1000;
     let config = Config {
-        use_ram_index: true,
+        use_ram_index: false,
         device: device.to_owned(),
         index_n_neighbors,
     };
     let (corpus, queries, _qrels) = load_scifact("test")?;
     let mut spark_bert = SparkBert::new(config)?;
-    if spark_bert.get_num_docs()? == 0 {
+    if spark_bert.get_num_docs() == 0 {
         spark_bert = build_spark_bert(&corpus, index_n_neighbors, device)?;
     }
-    println!("SparkBERT index size: {}", spark_bert.get_num_docs()?);
+    println!("SparkBERT index size: {}", spark_bert.get_num_docs());
     let pb = get_progress_bar(queries.len() as u64)?;
     let mut results: HashMap<String, HashMap<String, f64>> = HashMap::new();
     for (query_id, query) in pb.wrap_iter(queries.into_iter()) {

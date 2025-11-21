@@ -48,10 +48,7 @@ fn bench_vector_search(c: &mut Criterion) {
     };
     let mut spark_bert = SparkBert::new(config).unwrap();
     let search_n_neighbors = 3;
-    println!(
-        "SparkBERT index size: {}",
-        spark_bert.get_num_docs().unwrap()
-    );
+    println!("SparkBERT index size: {}", spark_bert.get_num_docs());
 
     // Setup benchmark
     let mut group = c.benchmark_group("Vector Search");

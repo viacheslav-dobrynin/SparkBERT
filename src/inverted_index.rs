@@ -20,9 +20,9 @@ use crate::{directory::ram_directory_from_mmap_dir, tf_term_query::TfTermQuery};
 const MAX_DF_RATIO: f32 = 0.15;
 
 pub struct InvertedIndex {
-    index: Option<Index>,
+    index: Index,
     writer: Option<SingleSegmentIndexWriter>,
-    pub reader: Option<IndexReader>,
+    pub reader: IndexReader,
     token_cluster_id: Field,
     doc_id: Field,
     pending: HashMap<u64, Vec<(String, f32)>>,
@@ -34,14 +34,17 @@ impl InvertedIndex {
         fs::create_dir_all(&directory_path)?;
         let directory = MmapDirectory::open(&directory_path)?;
         let (schema, token_cluster_id, doc_id) = Self::build_schema()?;
-        let writer = Index::builder()
-            .schema(schema)
-            .single_segment_index_writer(directory, 500_000_000)?; // 500 MB heap
-        let writer = Some(writer);
+        let index = Index::open_or_create(directory, schema)?;
+        let mem_budget = 500_000_000; // 500 MB heap
+        let writer = SingleSegmentIndexWriter::new(index.to_owned(), mem_budget)?;
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
         Ok(Self {
-            index: None,
-            writer,
-            reader: None,
+            index,
+            writer: Some(writer),
+            reader,
             token_cluster_id,
             doc_id,
             pending: HashMap::new(),
@@ -62,9 +65,9 @@ impl InvertedIndex {
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
         Ok(Self {
-            index: Some(ram_index),
+            index: ram_index,
             writer: None,
-            reader: Some(reader),
+            reader,
             token_cluster_id,
             doc_id,
             pending: HashMap::new(),
@@ -139,8 +142,8 @@ impl InvertedIndex {
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
-        self.index = Some(index);
-        self.reader = Some(reader);
+        self.index = index;
+        self.reader = reader;
         Ok(())
     }
 
@@ -162,10 +165,9 @@ impl InvertedIndex {
             .collect()
     }
 
-    pub fn get_num_docs(&self) -> Result<u64> {
-        let reader = self.reader.as_ref().unwrap();
-        let searcher = reader.searcher();
-        Ok(searcher.num_docs())
+    pub fn get_num_docs(&self) -> u64 {
+        let searcher = self.reader.searcher();
+        searcher.num_docs()
     }
 
     // TODO: 1. построить графики качество/время 2. посмотреть на глубину обхода постинг листов
@@ -183,7 +185,7 @@ impl InvertedIndex {
         let searcher = if let Some(searcher) = searcher {
             searcher
         } else {
-            &self.reader.as_ref().unwrap().searcher()
+            &self.reader.searcher()
         };
         let mut clauses = Vec::with_capacity(pairs.len());
         for &tok in pairs {

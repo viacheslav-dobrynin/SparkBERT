@@ -90,7 +90,7 @@ impl SparkBert {
         Ok(())
     }
 
-    pub fn get_num_docs(&self) -> Result<u64> {
+    pub fn get_num_docs(&self) -> u64 {
         self.inverted_index.get_num_docs()
     }
 }
