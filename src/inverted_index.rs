@@ -12,7 +12,7 @@ use tantivy::{
     schema::{
         Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, STORED,
     },
-    Index, IndexReader, ReloadPolicy, Searcher, SingleSegmentIndexWriter, TantivyDocument, Term,
+    Index, IndexReader, IndexWriter, ReloadPolicy, Searcher, TantivyDocument, Term,
 };
 
 use crate::{directory::ram_directory_from_mmap_dir, tf_term_query::TfTermQuery};
@@ -20,51 +20,37 @@ use crate::{directory::ram_directory_from_mmap_dir, tf_term_query::TfTermQuery};
 const MAX_DF_RATIO: f32 = 0.15;
 
 pub struct InvertedIndex {
-    index: Option<Index>,
-    writer: Option<SingleSegmentIndexWriter>,
-    pub reader: Option<IndexReader>,
+    index: Index,
+    writer: IndexWriter,
+    pub reader: IndexReader,
     token_cluster_id: Field,
     doc_id: Field,
     pending: HashMap<u64, Vec<(String, f32)>>,
 }
 
 impl InvertedIndex {
-    pub fn open() -> Result<Self> {
-        let directory_path = Self::default_directory_path();
-        fs::create_dir_all(&directory_path)?;
-        let directory = MmapDirectory::open(&directory_path)?;
-        let (schema, token_cluster_id, doc_id) = Self::build_schema()?;
-        let writer = Index::builder()
-            .schema(schema)
-            .single_segment_index_writer(directory, 500_000_000)?; // 500 MB heap
-        let writer = Some(writer);
-        Ok(Self {
-            index: None,
-            writer,
-            reader: None,
-            token_cluster_id,
-            doc_id,
-            pending: HashMap::new(),
-        })
-    }
-
-    pub fn open_with_copy_from_disk_to_ram_directory() -> Result<Self> {
+    pub fn open(use_ram_index: bool) -> Result<Self> {
         let directory_path = Self::default_directory_path();
         let (schema, token_cluster_id, doc_id) = Self::build_schema()?;
-        let ram_index = if directory_path.exists() {
-            let ram_directory = ram_directory_from_mmap_dir(&directory_path)?;
-            Index::open(ram_directory)?
+        let index = if use_ram_index {
+            if directory_path.exists() {
+                let ram_directory = ram_directory_from_mmap_dir(&directory_path)?;
+                Index::open(ram_directory)?
+            } else {
+                Index::create_in_ram(schema)
+            }
         } else {
-            Index::create_in_ram(schema)
+            fs::create_dir_all(&directory_path)?;
+            let directory = MmapDirectory::open(&directory_path)?;
+            Index::open_or_create(directory, schema)?
         };
-        let reader = ram_index
-            .reader_builder()
-            .reload_policy(ReloadPolicy::Manual)
-            .try_into()?;
+        let memory_budget_in_bytes = 500_000_000; // 500 MB heap
+        let writer = index.writer(memory_budget_in_bytes)?;
+        let reader = Self::build_reader(&index)?;
         Ok(Self {
-            index: Some(ram_index),
-            writer: None,
-            reader: Some(reader),
+            index,
+            writer,
+            reader,
             token_cluster_id,
             doc_id,
             pending: HashMap::new(),
@@ -101,7 +87,6 @@ impl InvertedIndex {
 
     /// commit
     pub fn finalize(&mut self) -> Result<()> {
-        let mut writer = self.writer.take().unwrap();
         let stop_words = self.prepare_stop_words();
         for (&doc_id, token_score_pairs) in self.pending.iter() {
             let mut doc = TantivyDocument::new();
@@ -127,20 +112,17 @@ impl InvertedIndex {
                 }
             }
             if set {
-                writer.add_document(doc)?;
+                self.writer.add_document(doc)?;
             } else {
                 panic!("adjust hyperparams, no tokens were added to doc")
             }
         }
         self.pending.clear();
-        println!("Inverted index memory usage: {}", &writer.mem_usage());
-        let index = writer.finalize()?;
-        let reader = index
-            .reader_builder()
-            .reload_policy(ReloadPolicy::Manual)
-            .try_into()?;
-        self.index = Some(index);
-        self.reader = Some(reader);
+        self.writer.commit()?;
+        self.writer
+            .merge(&self.index.searchable_segment_ids()?)
+            .wait()?;
+        self.reader.reload()?;
         Ok(())
     }
 
@@ -162,10 +144,17 @@ impl InvertedIndex {
             .collect()
     }
 
-    pub fn get_num_docs(&self) -> Result<u64> {
-        let reader = self.reader.as_ref().unwrap();
-        let searcher = reader.searcher();
-        Ok(searcher.num_docs())
+    fn build_reader(index: &Index) -> Result<IndexReader> {
+        let reader = index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::Manual)
+            .try_into()?;
+        Ok(reader)
+    }
+
+    pub fn get_num_docs(&self) -> u64 {
+        let searcher = self.reader.searcher();
+        searcher.num_docs()
     }
 
     // TODO: 1. построить графики качество/время 2. посмотреть на глубину обхода постинг листов
@@ -183,7 +172,7 @@ impl InvertedIndex {
         let searcher = if let Some(searcher) = searcher {
             searcher
         } else {
-            &self.reader.as_ref().unwrap().searcher()
+            &self.reader.searcher()
         };
         let mut clauses = Vec::with_capacity(pairs.len());
         for &tok in pairs {

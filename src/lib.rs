@@ -1,3 +1,4 @@
+pub mod api;
 pub mod args;
 pub mod dataset;
 pub mod directory;
