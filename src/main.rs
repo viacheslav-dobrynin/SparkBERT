@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
     };
     let mut spark_bert = SparkBert::new(config)?;
     if spark_bert.get_num_docs() == 0 {
+        drop(spark_bert);
         spark_bert = build_spark_bert(&corpus, index_n_neighbors, device)?;
     }
     println!("SparkBERT index size: {}", spark_bert.get_num_docs());

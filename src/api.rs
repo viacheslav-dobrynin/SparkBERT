@@ -29,11 +29,7 @@ impl SparkBert {
             "Vector vocabulary size: {}",
             vector_vocabulary.get_num_tokens()
         );
-        let inverted_index = if config.use_ram_index {
-            InvertedIndex::open_with_copy_from_disk_to_ram_directory()?
-        } else {
-            InvertedIndex::open()?
-        };
+        let inverted_index = InvertedIndex::open(config.use_ram_index)?;
         let args = Args {
             cpu: config.device.is_cpu(),
             tracing: false,
