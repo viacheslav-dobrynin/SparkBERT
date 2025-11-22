@@ -13,8 +13,7 @@ pub struct SparkBert {
     vector_vocabulary: VectorVocabulary,
     inverted_index: InvertedIndex,
     bert: Bert,
-    device: Device,
-    index_n_neighbors: usize,
+    config: Config,
 }
 pub struct Config {
     pub use_ram_index: bool,
@@ -44,8 +43,7 @@ impl SparkBert {
             vector_vocabulary,
             inverted_index,
             bert,
-            device: config.device,
-            index_n_neighbors: config.index_n_neighbors,
+            config,
         })
     }
 
@@ -72,10 +70,13 @@ impl SparkBert {
         for (doc_id, text) in docs {
             let doc_embs = &self.bert.calc_embs(vec![text.as_str()], false)?;
             let flat_doc_embs = convert_to_flatten_vec(doc_embs)?;
-            let (tokens, token_embs) =
-                self.vector_vocabulary
-                    .find_tokens(&flat_doc_embs, self.index_n_neighbors, true)?;
-            let scores = calculate_max_sim(flat_doc_embs, token_embs.unwrap(), &self.device, d)?;
+            let (tokens, token_embs) = self.vector_vocabulary.find_tokens(
+                &flat_doc_embs,
+                self.config.index_n_neighbors,
+                true,
+            )?;
+            let scores =
+                calculate_max_sim(flat_doc_embs, token_embs.unwrap(), &self.config.device, d)?;
             self.inverted_index.index(
                 doc_id,
                 tokens.iter().map(|&it| it.to_owned()).collect(),
