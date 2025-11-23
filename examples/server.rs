@@ -14,7 +14,7 @@ type SharedSparkBert = Arc<Mutex<SparkBert>>;
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     let config = Config {
-        use_ram_index: true,
+        use_ram_index: false,
         device: device(false)?,
         index_n_neighbors: 8,
     };
