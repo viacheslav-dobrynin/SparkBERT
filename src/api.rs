@@ -62,7 +62,7 @@ impl SparkBert {
         Ok(doc_id_score_pairs)
     }
 
-    pub fn index<I>(&mut self, docs: I) -> Result<()>
+    pub fn index<I>(&mut self, docs: I, filter_stop_words: bool) -> Result<()>
     where
         I: IntoIterator<Item = (u64, String)>,
     {
@@ -83,7 +83,7 @@ impl SparkBert {
                 scores,
             );
         }
-        self.inverted_index.finalize()?;
+        self.inverted_index.finalize(filter_stop_words)?;
         Ok(())
     }
 

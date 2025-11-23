@@ -84,7 +84,7 @@ async fn index_docs(
     let mut spark_bert = spark_bert.lock().await;
     let indexed = payload.docs.len();
     let docs = payload.docs.into_iter().map(|doc| (doc.doc_id, doc.text));
-    spark_bert.index(docs).map_err(internal_error)?;
+    spark_bert.index(docs, false).map_err(internal_error)?;
     Ok(Json(IndexResponse { indexed }))
 }
 
