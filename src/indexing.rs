@@ -28,7 +28,7 @@ pub fn build_spark_bert(
             p.1.as_text(),
         )
     }));
-    spark_bert.index(corpus_iter)?;
+    spark_bert.index(corpus_iter, true)?;
     dbg!(inverted_index_building_start.elapsed());
     Ok(spark_bert)
 }

@@ -86,8 +86,12 @@ impl InvertedIndex {
     }
 
     /// commit
-    pub fn finalize(&mut self) -> Result<()> {
-        let stop_words = self.prepare_stop_words();
+    pub fn finalize(&mut self, filter_stop_words: bool) -> Result<()> {
+        let stop_words = if filter_stop_words {
+            self.prepare_stop_words()
+        } else {
+            HashSet::new()
+        };
         for (&doc_id, token_score_pairs) in self.pending.iter() {
             let mut doc = TantivyDocument::new();
             doc.add_u64(self.doc_id, doc_id);
