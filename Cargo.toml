@@ -23,28 +23,28 @@ cuda = ["candle-core/cuda", "candle-transformers/cuda", "candle-nn/cuda"]
 
 [dependencies]
 anyhow = { version = "1", features = ["backtrace"] }
-candle-core = { version = "*" }
-candle-transformers = { version = "*" }
-candle-nn = { version = "*" }
+candle-core = { version = "0.9" }
+candle-transformers = { version = "0.9" }
+candle-nn = { version = "0.9" }
 # clap = { version = "4.2.4", features = ["derive"] }
-hf-hub = "0.4.2"
+hf-hub = "0.4"
 tokenizers = { version = "0.21.1", default-features = false, features = [
   "onig",
 ] }
-serde = { version = "*", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.140"
-tantivy = "*"
+tantivy = "0.25"
 tracing = "0.1.37"
 tracing-chrome = "0.7.1"
 tracing-subscriber = "0.3.7"
-rayon = { version = "*" }
-faiss = { version = "*", features = ["static"] }
+rayon = { version = "1" }
+faiss = { version = "0.13", features = ["static"] }
 tokio = "1.44.2"
-indicatif = "*"
-float8 = "*"
+indicatif = "0.18"
+float8 = "0.4"
 
 [dev-dependencies]
-criterion = { version = "*", features = ["html_reports"] }
+criterion = { version = "0", features = ["html_reports"] }
 axum = "0.8"
 
 [[bench]]
