@@ -23,4 +23,6 @@ The resulting vector vocabulary is used both during indexing and during search.
 It is important to note that for relevance scoring we use the MaxSim function proposed by the authors of [ColBERT](https://github.com/stanford-futuredata/ColBERT), which improves the quality of the scoring.
 
 As a result, the algorithm delivers search quality comparable to HNSW while requiring less memory.
+In addition, because the index is built using vector vocabulary tokens (which effectively represent a sparse vector of the document in the space of all vocabulary tokens) rather than relying on a single dense vector, it addresses the problem described by the Google DeepMind team.
+Moreover, the use of an inverted index significantly improves the scalability of semantic search.
 
