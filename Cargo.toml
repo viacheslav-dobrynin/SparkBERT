@@ -1,6 +1,20 @@
 [package]
 name = "spark-bert"
 version = "0.1.0"
+description = "Hybrid vector search using an inverted index and BERT embeddings"
+authors = ["Viacheslav Dobrynin <w.v.dobr@gmail.com>"]
+readme = "README.md"
+repository = "https://github.com/viacheslav-dobrynin/SparkBERT"
+keywords = [
+  "rust",
+  "information-retrieval",
+  "sparse",
+  "inverted-index",
+  "bert",
+  "rag",
+  "vector-search",
+]
+license = "Apache-2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
