@@ -6,8 +6,6 @@ authors = ["Viacheslav Dobrynin <w.v.dobr@gmail.com>"]
 readme = "README.md"
 repository = "https://github.com/viacheslav-dobrynin/SparkBERT"
 keywords = [
-  "rust",
-  "information-retrieval",
   "sparse",
   "inverted-index",
   "bert",
