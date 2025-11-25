@@ -100,12 +100,40 @@ Add spark-bert dependency:
 
 ```toml
 [dependencies]
-"spark-bert" = "*"
+anyhow = "1"
+spark-bert = "*"
 ```
 
 The current configuration automatically builds the required faiss version for faiss-rs from
 source, but this requires additional dependencies listed in
 [INSTALL.md](https://github.com/Enet4/faiss/blob/c_api_head/INSTALL.md#building-from-source).
+
+And then add the following code to main.rs:
+
+```Rust
+use anyhow::Result;
+use spark_bert::{
+    api::{Config, SparkBert},
+    util::device,
+};
+
+fn main() -> Result<()> {
+    let config = Config {
+        use_ram_index: true,
+        device: device(true)?,
+        index_n_neighbors: 8,
+    };
+    let mut spark_bert = SparkBert::new(config)?;
+    let docs = vec![
+        (1, "First document text".to_owned()),
+        (2, "Another document to index".to_owned()),
+    ];
+    spark_bert.index(docs, false)?;
+    let res = spark_bert.search("text", 3, 10)?;
+    println!("Search result: {:?}", res);
+    Ok(())
+}
+```
 
 ## Original Implementation
 
@@ -119,27 +147,19 @@ The model used for both SparkBERT and HNSW is: `sentence-transformers/all-MiniLM
 
 For the MS MARCO dataset:
 
-<p align="center">
-
 | Algorithm                | NDCG@10 | MRR@10 |
 |--------------------------|--------:|-------:|
 | SparkBERT (Lucene based) |    0.25 |   0.20 |
 | BM25 (Lucene based)      |    0.22 |   0.18 |
 | HNSW (Lucene based)      |    0.17 |   0.13 |
 
-</p>
-
 For the SciFact dataset:
-
-<p align="center">
 
 | Algorithm                | NDCG@10 | MRR@10 |
 |--------------------------|--------:|-------:|
 | SparkBERT (Lucene based) |    0.63 |   0.60 |
 | HNSW (Lucene based)      |    0.64 |   0.60 |
 | ColBERTv2                |    0.69 |   0.66 |
-
-</p>
 
 ### Python+PyLucene Implementation Memory Usage
 
@@ -152,4 +172,5 @@ Memory usage for the MS MARCO dataset:
 </p>
 
 ## Current Rust Implementation Benchmarks
+
 Coming soon 👀
