@@ -1,6 +1,6 @@
 [package]
 name = "spark-bert"
-version = "0.1.0"
+version = "0.1.1"
 description = "Hybrid vector search using an inverted index and BERT embeddings"
 authors = ["Viacheslav Dobrynin <w.v.dobr@gmail.com>"]
 readme = "README.md"
